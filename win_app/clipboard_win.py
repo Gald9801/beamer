@@ -68,8 +68,6 @@ if _IS_WINDOWS:
     ]
     user32.DestroyWindow.restype = ctypes.c_int
     user32.DestroyWindow.argtypes = [ctypes.c_void_p]
-    user32.RegisterClipboardFormatW.restype = ctypes.c_uint
-    user32.RegisterClipboardFormatW.argtypes = [ctypes.c_wchar_p]
     shell32 = ctypes.WinDLL("shell32", use_last_error=True)
     shell32.DragQueryFileW.restype = ctypes.c_uint
     shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_wchar_p, ctypes.c_uint]
@@ -79,9 +77,6 @@ else:
 CF_DIB = 8
 CF_UNICODETEXT = 13
 CF_HDROP = 15
-DROPEFFECT_COPY = 1
-# The registered format that tells a paste to copy rather than move.
-PREFERRED_DROP_EFFECT = "Preferred DropEffect"
 GMEM_MOVEABLE = 0x0002
 
 BI_RGB = 0
@@ -443,13 +438,6 @@ def set_contents(text: Optional[str], png: Optional[bytes]) -> bool:
 
 # Files (core/file_transfer.py): Explorer's copy is CF_HDROP, a DROPFILES header and the paths.
 
-def build_dropfiles(paths) -> bytes:
-    """A CF_HDROP payload: DROPFILES (pFiles = 20, no point, wide), each path NUL-ended, one more NUL."""
-    header = struct.pack("<IiiII", 20, 0, 0, 0, 1)
-    nul = chr(0)
-    return header + "".join(path + nul for path in paths).encode("utf-16-le") + bytes(2)
-
-
 def read_files() -> list:
     """The paths of the files and folders copied here, or [] when none are. Raises OSError when
     the clipboard cannot be opened."""
@@ -474,35 +462,3 @@ def read_files() -> list:
             return paths
         finally:
             user32.CloseClipboard()
-
-
-def set_files(paths) -> bool:
-    """Puts `paths` on the clipboard as Explorer's copy (not cut) would. True when written."""
-    global _synced_sequence, _written_sequence
-    if not _IS_WINDOWS or not paths:
-        return False
-    try:
-        with _LOCK:
-            owner = user32.CreateWindowExW(0, "STATIC", None, 0, 0, 0, 0, 0, -3, None, None, None)
-            if not owner:
-                return False
-            try:
-                if not _open_clipboard(user32, owner=owner):
-                    return False
-                try:
-                    if not user32.EmptyClipboard():
-                        return False
-                    wrote = _put_clipboard_data(user32, kernel32, CF_HDROP, build_dropfiles(paths))
-                    effect = user32.RegisterClipboardFormatW(PREFERRED_DROP_EFFECT)
-                    if wrote and effect:
-                        _put_clipboard_data(user32, kernel32, effect, struct.pack("<I", DROPEFFECT_COPY))
-                    if wrote:
-                        _synced_sequence = _written_sequence = user32.GetClipboardSequenceNumber()
-                    return wrote
-                finally:
-                    user32.CloseClipboard()
-            finally:
-                user32.DestroyWindow(owner)
-    except Exception:
-        LOGGER.exception("failed to put files on the Windows clipboard")
-        return False

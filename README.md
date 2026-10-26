@@ -115,10 +115,12 @@ In your own appearance: light if your GitHub is light, dark if it is dark.
 - **Pair them clearly.** Pair a machine is at the top of Overview, and the six digits are centred.
 - **Three machines.** Pair each machine with the others in the group. A chain needs a direct
   pairing between every pair of machines in it.
-- **The clipboard comes with you.** Text, images and files, both ways, at the moment you switch.
-  Copy files or folders in Explorer or Finder, switch, and paste: they arrive in
-  `Downloads/Beamer` on the other machine and go on its clipboard once every byte is there
-  (Windows and macOS; this fork's addition).
+- **The clipboard comes with you.** Text and images, both ways, at the moment you switch.
+- **Files on request (this fork).** Copy files or folders in Explorer or Finder as usual, move to
+  the other machine, open the folder you want them in and press **Ctrl+Shift+Alt+V** (Cmd works
+  for Ctrl on a Mac). They come straight into that folder; anywhere but a folder window, into
+  `Downloads/Beamer`. Copying alone moves nothing. The Files page shows the transfer's progress,
+  lets you cancel it or pick a folder by hand, and keeps a history of what was sent and received.
 - **Your shortcuts still work.** Between a Mac and Windows, Cmd becomes Ctrl and Option becomes
   Alt, so Cmd+C copies there too. The PC gets the reverse. Between two Macs or two PCs, each key
   arrives as the same physical key. On Windows, you can also choose a Mac keyboard layout, where
@@ -179,8 +181,9 @@ when Same on all machines is on.
   refuse input from any app by design, and Ctrl+Alt+Del cannot be sent at all. Use the PC's own
   keyboard there.
 - **Clipboard limits:** 256KB of text, an 8MB image, and up to 10,000 files and 64GB at once.
-  A big transfer takes its time after the switch; paste once it has finished. Files do not go on
-  through a third machine in a chain, and Linux does not send or take them yet.
+  Files do not go on through a third machine in a chain, and Linux does not send or take them yet.
+  On a Mac the Files page is not built yet: its notices and the history file
+  (`~/Library/Application Support/Beamer/file-history.json`) are all there is.
 - **AltGr is out of reach from the Mac.**
 - **Linux on Wayland has fewer controls.** Its limits are listed under [Linux](#linux).
 - **Linux gestures are not supported.**

@@ -52,7 +52,7 @@ FOLLOW_EVERY_SECONDS = 30.0
 SEND_CHUNK = 65536
 _CAP_FOR = {protocol.MSG_GESTURE: "gestures", protocol.MSG_TEXT: "text", protocol.MSG_SETTINGS: "settings",
             protocol.MSG_IDENTIFY_SCREENS: "identify_screens",
-            **{kind: "clipboard_files" for kind in protocol.FILE_TYPES}}
+            **{kind: "clipboard_files" for kind in protocol.FILE_TYPES | {protocol.MSG_FILE_PULL}}}
 
 
 class LinkEnded(Exception):

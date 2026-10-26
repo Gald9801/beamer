@@ -916,16 +916,21 @@ Machines whose `caps` both list `clipboard_files` carry copied files with the cl
   `.` or `..`, no `\`, at most 1024 characters; and a size in bytes) or `{p, dir: true}` for an
   empty folder; no two paths the same ignoring case; at most 64 GiB in all. A sender with files
   sends neither `text` nor `image` beside them.
-- The bytes follow on the same link, in order: `file_data` (`x`, `f` the item's index, `o` the
-  offset, `d` at most 32 KiB as standard base64), then `file_end` (`x`). `file_cancel` (`x`) gives
-  the transfer up. A sender keeps at most three messages queued ahead of the link, so input waits
-  behind at most a few pieces.
-- A receiver takes pieces only for the transfer the last `clipboard` it took from that peer named,
-  under section 5's rules, so files arrive only by the clipboard's own path. A piece out of order
-  or past an item's size, or an item short at `file_end`, discards the transfer. Files are written
-  to a hidden folder and moved to a folder of their own under `Downloads/Beamer` when complete,
-  and put on the clipboard only when nothing was copied there since the `clipboard` arrived. That
-  write counts as the peer's clipboard, so it is never sent back.
+- Nothing more moves until the user, on the machine the clipboard reached, presses the files
+  shortcut (Ctrl+Shift+Alt+V). That machine sends `file_request` (`x`) on the link the `clipboard`
+  came on. The machine with the keyboard sees the shortcut: pressed while its input is on another
+  machine, it sends that machine `file_pull` (`{}`, owner to responder only), and the request
+  comes from there.
+- The bytes follow a `file_request` for the `x` last offered on that link, in order: `file_data`
+  (`x`, `f` the item's index, `o` the offset, `d` at most 32 KiB as standard base64), then
+  `file_end` (`x`). Either end may send `file_cancel` (`x`) to give the transfer up. A sender keeps
+  at most three messages queued ahead of the link, so input waits behind at most a few pieces.
+- A receiver takes pieces only for a transfer it asked for, from the peer that offered it, so
+  files arrive only by the clipboard's own path. A piece out of order or past an item's size, or an
+  item short at `file_end`, fails the transfer and sends `file_cancel` back. Files are written to a
+  hidden folder inside the destination (the folder open in front, else `Downloads/Beamer`) and
+  each copied item is moved into the destination when all have arrived, numbered as a file manager
+  numbers a name already taken. The clipboard is never written.
 
 ### A phone
 

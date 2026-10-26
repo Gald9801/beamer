@@ -22,6 +22,7 @@ setup(
     py_modules=[
         "bridge",
         "clipboard_mac",
+        "finder_folder",
         "config",
         "crossing",
         "desktop_mac",
@@ -99,6 +100,7 @@ setup(
                 "ATSApplicationFontsPath": "Fonts",
                 "NSHumanReadableCopyright": "Copyright 2026 Toby Kalkman",
                 "NSLocalNetworkUsageDescription": "Beamer needs to reach your other computers on your local network to share keyboard and mouse input.",
+                "NSAppleEventsUsageDescription": "Beamer asks Finder which folder is open, so files you bring from another computer land in it.",
                 "CFBundleLocalizations": ["en", "it"],
                 "CFBundleDevelopmentRegion": "en_GB",
             },

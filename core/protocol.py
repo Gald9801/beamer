@@ -430,12 +430,16 @@ MSG_ACCEPTS = "accepts"
 MSG_PAIRED = "paired"
 MSG_TEXT = "text"
 # Files on the clipboard (this fork's addition, WIRE.md section 5, files): the `clipboard` names
-# them under `files`, and their bytes follow on the same link in `file_data` pieces small enough
-# to sit between input messages, then `file_end`; `file_cancel` gives a transfer up.
+# them under `files`; the machine that wants them asks with `file_request`, and their bytes follow
+# on the same link in `file_data` pieces small enough to sit between input messages, then
+# `file_end`; `file_cancel` gives a transfer up. `file_pull`, owner to responder, is the files
+# shortcut pressed while the owner's input is on the responder.
+MSG_FILE_REQUEST = "file_request"
 MSG_FILE_DATA = "file_data"
 MSG_FILE_END = "file_end"
 MSG_FILE_CANCEL = "file_cancel"
-FILE_TYPES = frozenset({MSG_FILE_DATA, MSG_FILE_END, MSG_FILE_CANCEL})
+MSG_FILE_PULL = "file_pull"
+FILE_TYPES = frozenset({MSG_FILE_REQUEST, MSG_FILE_DATA, MSG_FILE_END, MSG_FILE_CANCEL})
 INPUT_TYPES = frozenset({MSG_KEYDOWN, MSG_KEYUP, MSG_MOUSEMOVE, MSG_MOUSEDOWN, MSG_MOUSEUP, MSG_SCROLL, MSG_GESTURE, MSG_TEXT})
 
 ERROR_INVALID_HELLO = "invalid_hello"
@@ -1343,6 +1347,14 @@ def file_data_msg(xfer: int, index: int, offset: int, data: bytes) -> dict:
                                             "d": base64.b64encode(data).decode("ascii")}}
 
 
+def file_request_msg(xfer: int) -> dict:
+    return {"type": MSG_FILE_REQUEST, "data": {"x": xfer}}
+
+
+def file_pull_msg() -> dict:
+    return {"type": MSG_FILE_PULL, "data": {}}
+
+
 def file_end_msg(xfer: int) -> dict:
     return {"type": MSG_FILE_END, "data": {"x": xfer}}
 
@@ -1353,7 +1365,7 @@ def file_cancel_msg(xfer: int) -> dict:
 
 def read_file_message(message):
     """(type, x, index, offset, bytes) for a `file_data`, (type, x, None, None, None) for a
-    `file_end` or `file_cancel`, or None when malformed."""
+    `file_request`, `file_end` or `file_cancel`, or None when malformed."""
     parsed = read_message(message)
     if parsed is None or parsed[0] not in FILE_TYPES:
         return None

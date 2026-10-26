@@ -118,6 +118,12 @@ def is_this_machine(host: str, local_addresses=None, address_towards=None) -> bo
         return False
 
 
+# The files shortcut, Ctrl+Shift+Alt+V (core/file_transfer.py), by virtual key: V, and each
+# modifier as either side or the generic code a hook may report.
+_VK_V = 0x56
+_FILES_CHORD = ((0x11, 0xA2, 0xA3), (0x10, 0xA0, 0xA1), (0x12, 0xA4, 0xA5))
+
+
 class LinkSender:
     """The links to every peer this PC may send to, and the decision -- taken on the hook thread --
     of whether each local input event belongs to this PC or to one of them.
@@ -566,6 +572,12 @@ class LinkSender:
             data = self._keys_down.pop(held, None) or self._key_data(name, us)
         if self._shake_detector is not None:
             self._shake_detector.held(self._clock(), bool(self._keys_down or self._buttons_held))
+        if down and vk == _VK_V and self._files is not None and self._files_chord_held():
+            # The files shortcut: the files copied on another machine come into the folder open
+            # on the machine the input is on. V never arrives anywhere, nor does its release.
+            self._intent_keys_up.add(vk)
+            self._files_shortcut(owner.on if owner.away else None)
+            return True
         if vk in self._intent_windows_up or vk in self._intent_keys_up:
             if not down:
                 self._intent_windows_up.discard(vk)
@@ -671,6 +683,23 @@ class LinkSender:
             self._queue(actions)
         self._report(actions)
         return not any(action is owner_module.LOCAL for action in actions)
+
+    def _files_chord_held(self) -> bool:
+        """Ctrl, Shift and Alt all down, either side of each, by what the hook has seen."""
+        held = self._keys_down
+        return all(any(key in held for key in group) for group in _FILES_CHORD)
+
+    def _files_shortcut(self, peer) -> None:
+        """Off the hook thread: on `peer`, which pulls into its own open folder, or here."""
+        def run():
+            try:
+                if peer is None:
+                    self._files.pull()
+                elif "clipboard_files" in self.links.caps(peer):
+                    self.links.post(peer, protocol.file_pull_msg())
+            except Exception:
+                LOGGER.exception("The files shortcut failed")
+        threading.Thread(target=run, name="Beamer-files-shortcut", daemon=True).start()
 
     @staticmethod
     def _key_data(name: str, us: Optional[str]) -> dict:
@@ -1066,7 +1095,9 @@ class LinkSender:
                 if (taken and read["files"] is not None and self._files is not None
                         and "clipboard_files" in self.links.caps(peer)):
                     self._files.arrived(("initiator", peer), read["files"],
-                                        lambda message: self.links.post(peer, message))
+                                        lambda message: self.links.post(peer, message), self._name(peer))
+                elif taken and self._files is not None:
+                    self._files.forget(("initiator", peer))
                 self._report(actions)
         elif kind in protocol.FILE_TYPES:
             if self._files is not None and "clipboard_files" in self.links.caps(peer):
@@ -1477,23 +1508,14 @@ class LinkSender:
             image = None
         files = None
         if self._files is not None and "clipboard_files" in caps:
-            files = self._files.offer(("initiator", peer))
+            files = self._files.offer(("initiator", peer), lambda message: self.links.post(peer, message),
+                                      lambda: self.links.backlog(peer), self._name(peer))
             if files is not None:
                 # Explorer may also put the names on as text; the files stand for themselves.
                 text = image = None
         if not text and image is None and files is None:
             return None
-        sent = self.links.post(peer, protocol.clipboard_msg(text or None, image, files))
-        if sent and files is not None:
-            self._files.send(("initiator", peer), lambda message: self.links.post(peer, message),
-                             lambda: self.links.backlog(peer))
-        return sent
-
-    def clipboard_written(self, stamp) -> None:
-        """Files a peer sent were put on the clipboard: that change is the peer's, not this PC's."""
-        with self._lock:
-            self._clipboard_stamp = stamp
-            self._clipboard_written_stamp = stamp
+        return self.links.post(peer, protocol.clipboard_msg(text or None, image, files))
 
     def _set_clipboard(self, message: dict) -> None:
         read = protocol.read_clipboard(message)

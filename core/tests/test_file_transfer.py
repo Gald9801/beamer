@@ -1,4 +1,5 @@
-"""Files on the clipboard: offered on one machine, streamed in pieces, assembled on the other."""
+"""Files on the clipboard: offered with their names only, pulled by the shortcut into a folder,
+streamed in pieces, recorded in the history."""
 
 import os
 import shutil
@@ -13,21 +14,9 @@ from core import file_transfer, protocol
 class FileClipboard:
     def __init__(self, paths=()):
         self.paths = list(paths)
-        self.stamp = 1
 
     def read_files(self):
         return list(self.paths)
-
-    def set_files(self, paths):
-        self.paths = list(paths)
-        self.stamp += 1
-        return True
-
-    def change_stamp(self):
-        return self.stamp
-
-    def copy(self):
-        self.stamp += 1
 
 
 def wait_for(condition, seconds=10.0):
@@ -39,110 +28,196 @@ def wait_for(condition, seconds=10.0):
     return False
 
 
-class FileTransfer(unittest.TestCase):
+def wire(message):
+    """A message as the other end reads it."""
+    return protocol.parse_message(protocol.dumps_message(message))
+
+
+class Pair:
+    """A sending and a receiving FileShare joined back to back, as one link joins them."""
+
+    def __init__(self, test, paths, destination, mangle=None, **receiver):
+        root = test.root
+        self.sent_kinds = []
+        self.notes = []
+        self.sender = file_transfer.FileShare(lambda: FileClipboard(paths), notify=self.notes.append,
+                                              history_path=os.path.join(root, "sender-history.json"))
+        self.receiver = file_transfer.FileShare(lambda: FileClipboard(), notify=self.notes.append,
+                                                destination=lambda: destination,
+                                                history_path=os.path.join(root, "receiver-history.json"), **receiver)
+
+        def to_receiver(message):
+            message = wire(message)
+            if mangle is not None:
+                message = mangle(message)
+            self.sent_kinds.append(message.get("type"))
+            self.receiver.receive("sender", message)
+            return True
+
+        def to_sender(message):
+            self.sender.receive("receiver", wire(message))
+            return True
+
+        files = self.sender.offer("receiver", to_receiver, lambda: 0, name="Sender PC")
+        self.files = files
+        if files is not None:
+            read = protocol.read_clipboard(wire(protocol.clipboard_msg(None, None, files)))
+            self.receiver.arrived("sender", read["files"], to_sender, name="Sender PC")
+
+
+class Pulling(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="beamer-files-")
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.addCleanup(lambda: shutil.rmtree(file_transfer._long(self.root), ignore_errors=True))
         self.source = os.path.join(self.root, "source")
-        self.inbox = os.path.join(self.root, "inbox")
+        self.target = os.path.join(self.root, "target")
         os.makedirs(os.path.join(self.source, "folder", "deep"))
         os.makedirs(os.path.join(self.source, "folder", "empty"))
+        os.makedirs(self.target)
         self.big = os.urandom(protocol.FILE_CHUNK_BYTES * 3 + 123)
         with open(os.path.join(self.source, "big.bin"), "wb") as handle:
             handle.write(self.big)
         with open(os.path.join(self.source, "folder", "deep", "note.txt"), "wb") as handle:
             handle.write(b"hello")
         open(os.path.join(self.source, "folder", "zero.txt"), "wb").close()
-        self.sending_clipboard = FileClipboard([os.path.join(self.source, "big.bin"), os.path.join(self.source, "folder")])
-        self.receiving_clipboard = FileClipboard()
-        self.written = []
-        self.notes = []
-        self.sender = file_transfer.FileShare(lambda: self.sending_clipboard)
-        self.receiver = file_transfer.FileShare(lambda: self.receiving_clipboard, written=self.written.append,
-                                                notify=self.notes.append, folder=lambda: self.inbox)
+        self.copied = [os.path.join(self.source, "big.bin"), os.path.join(self.source, "folder")]
 
-    def carry(self, mangle=None):
-        """Offers, then posts each message straight to the receiver as a link would deliver it."""
-        files = self.sender.offer("peer")
-        self.assertIsNotNone(files)
-        message = protocol.parse_message(protocol.dumps_message(protocol.clipboard_msg(None, None, files)))
-        read = protocol.read_clipboard(message)
-        self.receiver.arrived("peer", read["files"])
-        posted = []
+    def done(self, share):
+        return lambda: share.snapshot()["history"] and not share.snapshot()["active"]
 
-        def post(message):
-            message = protocol.parse_message(protocol.dumps_message(message))
-            if mangle is not None:
-                message = mangle(message)
-            posted.append(message.get("type"))
-            self.receiver.receive("peer", message)
-            return True
-
-        self.sender.send("peer", post, lambda: 0)
-        return posted
-
-    def test_files_and_folders_arrive_whole_and_go_on_the_clipboard(self):
-        self.carry()
-        self.assertTrue(wait_for(lambda: self.written), self.notes)
-        paths = self.receiving_clipboard.paths
-        self.assertEqual(sorted(os.path.basename(path) for path in paths), ["big.bin", "folder"])
-        folder = os.path.dirname(paths[0])
-        with open(os.path.join(folder, "big.bin"), "rb") as handle:
+    def test_copying_sends_names_only_and_the_shortcut_brings_the_files_into_the_open_folder(self):
+        pair = Pair(self, self.copied, self.target)
+        self.assertEqual(pair.sent_kinds, [])
+        self.assertEqual(pair.receiver.snapshot()["available"]["count"], 3)
+        self.assertTrue(pair.receiver.pull())
+        self.assertTrue(wait_for(self.done(pair.receiver)), pair.notes)
+        with open(os.path.join(self.target, "big.bin"), "rb") as handle:
             self.assertEqual(handle.read(), self.big)
-        with open(os.path.join(folder, "folder", "deep", "note.txt"), "rb") as handle:
+        with open(os.path.join(self.target, "folder", "deep", "note.txt"), "rb") as handle:
             self.assertEqual(handle.read(), b"hello")
-        self.assertEqual(os.path.getsize(os.path.join(folder, "folder", "zero.txt")), 0)
-        self.assertTrue(os.path.isdir(os.path.join(folder, "folder", "empty")))
-        self.assertEqual(self.written, [self.receiving_clipboard.stamp])
-        self.assertFalse([name for name in os.listdir(self.inbox) if name.startswith(".incoming")])
+        self.assertEqual(os.path.getsize(os.path.join(self.target, "folder", "zero.txt")), 0)
+        self.assertTrue(os.path.isdir(os.path.join(self.target, "folder", "empty")))
+        self.assertEqual(sorted(os.listdir(self.target)), ["big.bin", "folder"])
+        received = pair.receiver.snapshot()["history"][0]
+        self.assertEqual((received["direction"], received["status"], received["peer"], received["count"]),
+                         ("received", "done", "Sender PC", 3))
+        self.assertEqual(received["folder"], self.target)
+        self.assertTrue(wait_for(self.done(pair.sender)))
+        self.assertEqual(pair.sender.snapshot()["history"][0]["direction"], "sent")
 
-    def test_a_local_copy_meanwhile_keeps_the_clipboard(self):
-        files = self.sender.offer("peer")
-        self.receiver.arrived("peer", protocol.read_files(files))
-        self.receiving_clipboard.copy()
-        before = self.receiving_clipboard.stamp
-        self.sender.send("peer", lambda message: (self.receiver.receive("peer", protocol.parse_message(protocol.dumps_message(message))), True)[1], lambda: 0)
-        self.assertTrue(wait_for(lambda: self.notes))
-        self.assertEqual(self.receiving_clipboard.stamp, before)
-        self.assertEqual(self.written, [])
-        self.assertEqual(len([name for name in os.listdir(self.inbox) if not name.startswith(".")]), 1)
+    def test_a_name_already_taken_gets_a_number_as_explorer_and_finder_give_it(self):
+        with open(os.path.join(self.target, "big.bin"), "wb") as handle:
+            handle.write(b"keep me")
+        pair = Pair(self, [os.path.join(self.source, "big.bin")], self.target)
+        pair.receiver.pull()
+        self.assertTrue(wait_for(self.done(pair.receiver)), pair.notes)
+        with open(os.path.join(self.target, "big.bin"), "rb") as handle:
+            self.assertEqual(handle.read(), b"keep me")
+        with open(os.path.join(self.target, "big (2).bin"), "rb") as handle:
+            self.assertEqual(handle.read(), self.big)
 
-    def test_a_piece_out_of_place_discards_everything(self):
+    def test_no_open_folder_means_downloads(self):
+        downloads = os.path.join(self.root, "downloads")
+        pair = Pair(self, self.copied, None, folder=lambda: downloads)
+        pair.receiver.pull()
+        self.assertTrue(wait_for(self.done(pair.receiver)), pair.notes)
+        self.assertEqual(sorted(os.listdir(downloads)), ["big.bin", "folder"])
+
+    def test_nothing_copied_says_so(self):
+        notes = []
+        share = file_transfer.FileShare(lambda: FileClipboard(), notify=notes.append)
+        self.assertFalse(share.pull())
+        self.assertIn(file_transfer.SHORTCUT_TEXT, notes[0])
+
+    def test_a_piece_out_of_place_fails_stops_the_sender_and_leaves_nothing(self):
         def mangle(message):
             if message.get("type") == protocol.MSG_FILE_DATA and message["data"]["o"] > 0:
                 message["data"]["o"] += 1
             return message
 
-        self.carry(mangle)
-        self.assertTrue(wait_for(lambda: self.notes))
-        time.sleep(0.2)
-        self.assertEqual(self.written, [])
-        self.assertEqual(os.listdir(self.inbox), [])
+        pair = Pair(self, self.copied, self.target, mangle=mangle)
+        pair.receiver.pull()
+        self.assertTrue(wait_for(self.done(pair.receiver)))
+        self.assertEqual(pair.receiver.snapshot()["history"][0]["status"], "failed")
+        self.assertTrue(wait_for(self.done(pair.sender)))
+        self.assertNotIn(protocol.MSG_FILE_END, pair.sent_kinds)
+        self.assertEqual(os.listdir(self.target), [])
 
-    def test_pieces_for_no_transfer_are_dropped(self):
-        self.receiver.receive("stranger", protocol.parse_message(protocol.dumps_message(
-            protocol.file_data_msg(5, 0, 0, b"x"))))
-        self.receiver.receive("stranger", protocol.parse_message(protocol.dumps_message(protocol.file_end_msg(5))))
+    def test_pieces_nobody_asked_for_are_dropped(self):
+        share = file_transfer.FileShare(lambda: FileClipboard(), destination=lambda: self.target)
+        share.receive("stranger", wire(protocol.file_data_msg(5, 0, 0, b"x")))
+        share.receive("stranger", wire(protocol.file_end_msg(5)))
         time.sleep(0.1)
-        self.assertFalse(os.path.exists(self.inbox))
+        self.assertEqual(os.listdir(self.target), [])
 
-    def test_a_lost_link_stops_the_sender(self):
-        files = self.sender.offer("peer")
-        self.receiver.arrived("peer", protocol.read_files(files))
-        sent = []
+    def test_a_request_for_files_never_offered_sends_nothing(self):
+        pair = Pair(self, self.copied, self.target)
+        pair.sender.receive("receiver", wire(protocol.file_request_msg(pair.files["x"] + 1)))
+        time.sleep(0.1)
+        self.assertEqual(pair.sent_kinds, [])
+
+    def test_cancel_stops_both_ends(self):
+        big = os.path.join(self.source, "huge.bin")
+        with open(big, "wb") as handle:
+            handle.write(os.urandom(protocol.FILE_CHUNK_BYTES * 200))
         gate = threading.Event()
+        pair = Pair(self, [big], self.target)
+        original = pair.receiver._write
 
-        def backlog():
+        def slow(*args):
             gate.wait(2)
-            return 0
+            original(*args)
 
-        self.sender.send("peer", lambda message: (sent.append(message), True)[1], backlog)
-        self.sender.link_lost("peer")
-        self.receiver.link_lost("peer")
+        pair.receiver._write = slow
+        pair.receiver.pull()
+        self.assertTrue(wait_for(lambda: pair.receiver.snapshot()["active"]))
+        pair.receiver.cancel()
         gate.set()
-        time.sleep(0.2)
-        self.assertLessEqual(len(sent), 1)
-        self.assertTrue(wait_for(lambda: not os.path.exists(self.inbox) or not os.listdir(self.inbox)))
+        self.assertTrue(wait_for(self.done(pair.receiver)))
+        self.assertEqual(pair.receiver.snapshot()["history"][0]["status"], "cancelled")
+        self.assertTrue(wait_for(self.done(pair.sender)))
+        self.assertEqual(os.listdir(self.target), [])
+
+    def test_a_folder_deeper_than_windows_paths_go_arrives(self):
+        deep = os.path.join(self.source, "project", *(["a_rather_long_folder_name_" + str(n) for n in range(12)]))
+        os.makedirs(file_transfer._long(deep))
+        target = os.path.join(deep, "asset.uasset")
+        self.assertGreater(len(target), 300)
+        with open(file_transfer._long(target), "wb") as handle:
+            handle.write(b"deep bytes")
+        pair = Pair(self, [os.path.join(self.source, "project")], self.target)
+        pair.receiver.pull()
+        self.assertTrue(wait_for(self.done(pair.receiver)), pair.notes)
+        self.assertEqual(pair.receiver.snapshot()["history"][0]["status"], "done", pair.notes)
+        landed = os.path.join(self.target, os.path.relpath(target, self.source))
+        with open(file_transfer._long(landed), "rb") as handle:
+            self.assertEqual(handle.read(), b"deep bytes")
+
+    def test_the_history_survives_a_restart(self):
+        pair = Pair(self, self.copied, self.target)
+        pair.receiver.pull()
+        self.assertTrue(wait_for(self.done(pair.receiver)))
+        path = os.path.join(self.root, "receiver-history.json")
+        # The save follows the history in memory, on the thread that ended the transfer.
+        self.assertTrue(wait_for(lambda: file_transfer.FileShare(lambda: FileClipboard(), history_path=path).snapshot()["history"]))
+        again = file_transfer.FileShare(lambda: FileClipboard(), history_path=path)
+        self.assertEqual(again.snapshot()["history"][0]["names"], ["big.bin", "folder"])
+        again.clear_history()
+        self.assertEqual(again.snapshot()["history"], [])
+
+    def test_progress_shows_while_it_goes(self):
+        big = os.path.join(self.source, "video.mp4")
+        with open(big, "wb") as handle:
+            handle.write(os.urandom(protocol.FILE_CHUNK_BYTES * 64))
+        seen, shares = [], []
+        pair = Pair(self, [big], self.target, changed=lambda: shares and seen.append(shares[0].snapshot()["active"]))
+        shares.append(pair.receiver)
+        file_transfer.CHANGED_EVERY_SECONDS, saved = 0.0, file_transfer.CHANGED_EVERY_SECONDS
+        self.addCleanup(setattr, file_transfer, "CHANGED_EVERY_SECONDS", saved)
+        pair.receiver.pull()
+        self.assertTrue(wait_for(self.done(pair.receiver)))
+        partial = [active[0]["done"] for active in seen if active and 0 < active[0]["done"] < active[0]["bytes"]]
+        self.assertTrue(partial)
 
 
 class Manifest(unittest.TestCase):
@@ -163,114 +238,31 @@ class Manifest(unittest.TestCase):
         self.assertLess(len(protocol.dumps_message(message)), protocol.SMALL_MESSAGE_BYTES)
 
 
-class Failures(unittest.TestCase):
-    """What a failed or long transfer tells the user, and that a failure here stops the sender."""
-
-    def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="beamer-files-")
-        self.addCleanup(lambda: shutil.rmtree(file_transfer._long(self.root), ignore_errors=True))
-        self.notes = []
-        self.receiving_clipboard = FileClipboard()
-        self.receiver = file_transfer.FileShare(lambda: self.receiving_clipboard, written=lambda stamp: None,
-                                                notify=self.notes.append,
-                                                folder=lambda: os.path.join(self.root, "inbox"))
-
-    def carry(self, paths, sender_notes=None):
-        sender = file_transfer.FileShare(lambda: FileClipboard(paths), notify=(sender_notes or []).append)
-        files = sender.offer("peer")
-        sent = []
-
-        def reply(message):
-            sender.receive("peer", protocol.parse_message(protocol.dumps_message(message)))
-            return True
-
-        self.receiver.arrived("peer", protocol.read_files(files), reply)
-
-        def post(message):
-            sent.append(message["type"])
-            self.receiver.receive("peer", protocol.parse_message(protocol.dumps_message(message)))
-            return True
-
-        sender.send("peer", post, lambda: 0)
-        return sent
-
-    def test_a_folder_deeper_than_windows_paths_go_arrives(self):
-        deep = os.path.join(self.root, "project", *(["a_rather_long_folder_name_" + str(n) for n in range(12)]))
-        os.makedirs(file_transfer._long(deep))
-        target = os.path.join(deep, "asset.uasset")
-        self.assertGreater(len(target), 300)
-        with open(file_transfer._long(target), "wb") as handle:
-            handle.write(b"deep bytes")
-        self.carry([os.path.join(self.root, "project")])
-        self.assertTrue(wait_for(lambda: self.receiving_clipboard.paths), self.notes)
-        landed = os.path.join(self.receiving_clipboard.paths[0], *os.path.relpath(target, os.path.join(self.root, "project")).split(os.sep))
-        with open(file_transfer._long(landed), "rb") as handle:
-            self.assertEqual(handle.read(), b"deep bytes")
-        self.assertFalse(self.receiving_clipboard.paths[0].startswith("\\\\?\\"))
-
-    def test_a_failure_here_says_why_and_stops_the_sender(self):
-        source = os.path.join(self.root, "big.bin")
-        with open(source, "wb") as handle:
-            handle.write(os.urandom(protocol.FILE_CHUNK_BYTES * 40))
-        writes = []
-        original = file_transfer.FileShare._write
-
-        def failing(share, incoming, index, offset, chunk):
-            writes.append(offset)
-            if len(writes) == 3:
-                raise_into = OSError("disk unplugged")
-                share._fail(incoming, raise_into)
-                return
-            original(share, incoming, index, offset, chunk)
-
-        file_transfer.FileShare._write = failing
-        self.addCleanup(setattr, file_transfer.FileShare, "_write", original)
-        sent = self.carry([source])
-        self.assertTrue(wait_for(lambda: any("disk unplugged" in note for note in self.notes)), self.notes)
-        time.sleep(0.3)
-        self.assertLess(sent.count(protocol.MSG_FILE_DATA), 40)
-        self.assertNotIn(protocol.MSG_FILE_END, sent)
-
-    def test_a_long_transfer_says_it_began_and_how_far_it_got(self):
-        source = os.path.join(self.root, "video.mp4")
-        with open(source, "wb") as handle:
-            handle.write(os.urandom(file_transfer.PROGRESS_MIN_BYTES + 1))
-        self.carry([source])
-        self.assertTrue(wait_for(lambda: self.receiving_clipboard.paths), self.notes)
-        self.assertTrue(self.notes[0].startswith("Receiving 1 files"), self.notes)
-        self.assertEqual([note for note in self.notes if "%" in note],
-                         [f"Receiving files: {p}% of 8.0 MB" for p in (25, 50, 75)])
-        self.assertEqual(self.notes[-1], "Files received: paste to copy them here")
-
-
 class OverARealLink(unittest.TestCase):
-    """The files over a real, sealed link on loopback: to the responder from its owner, and back."""
+    """Over a real, sealed link on loopback: the owner's files pulled by the shortcut on the machine
+    it drives, and the machine's files pulled back by the owner."""
 
     def setUp(self):
         from core.tests.responder_harness import B, CAPS, Initiator, Machine, entry
         self.root = tempfile.mkdtemp(prefix="beamer-link-files-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.machine_folder = os.path.join(self.root, "machine-folder")
+        self.owner_folder = os.path.join(self.root, "owner-folder")
+        os.makedirs(self.machine_folder)
+        os.makedirs(self.owner_folder)
         caps = sorted(set(CAPS) | {file_transfer.CAPABILITY})
         self.machine = Machine([entry(B, "Peer")], caps=caps)
-        self.machine.clipboard.read_files = lambda: list(self.machine_files)
-        self.machine.clipboard.set_files = self.set_machine_files
         self.machine_files = []
+        self.machine.clipboard.read_files = lambda: list(self.machine_files)
         self.machine.responder._files = file_transfer.FileShare(
-            lambda: self.machine.clipboard, written=self.machine.responder.clipboard_written,
-            folder=lambda: os.path.join(self.root, "machine-inbox"))
+            lambda: self.machine.clipboard, destination=lambda: self.machine_folder)
         self.machine.start()
         self.addCleanup(self.machine.stop)
         self.link = Initiator(self.machine)
         self.addCleanup(self.link.close)
         self.link.handshake(self.link.hello(caps=caps))
         self.owner_clipboard = FileClipboard()
-        self.owner = file_transfer.FileShare(lambda: self.owner_clipboard,
-                                             folder=lambda: os.path.join(self.root, "owner-inbox"))
-
-    def set_machine_files(self, paths):
-        self.machine_files = list(paths)
-        self.machine.clipboard.stamp += 1
-        return True
+        self.owner = file_transfer.FileShare(lambda: self.owner_clipboard, destination=lambda: self.owner_folder)
 
     def make(self, name, size):
         path = os.path.join(self.root, name)
@@ -279,22 +271,32 @@ class OverARealLink(unittest.TestCase):
             handle.write(data)
         return path, data
 
-    def test_the_owner_s_files_land_on_the_machine_it_takes(self):
+    def pump(self, until, seconds=15):
+        """Hands what the machine sends to the owner's FileShare until `until()`."""
+        deadline = time.monotonic() + seconds
+        while not until() and time.monotonic() < deadline:
+            message = self.link._claim(lambda m: m.get("type") in protocol.FILE_TYPES, 0.1)
+            if message is not None:
+                self.owner.receive("machine", message)
+        return until()
+
+    def test_the_owner_s_files_come_into_the_folder_open_on_the_machine_it_drives(self):
         path, data = self.make("photo.jpg", 1_500_000)
         route = self.link.take()
         self.assertEqual(self.link.answer(route)[0], protocol.MSG_ACCEPT)
         self.owner_clipboard.paths = [path]
-        files = self.owner.offer("machine")
+        post = lambda message: (self.link.send(message), True)[1]
+        files = self.owner.offer("machine", post, lambda: 0)
         self.link.send(protocol.clipboard_msg(None, None, files))
-        self.owner.send("machine", lambda message: (self.link.send(message), True)[1], lambda: 0)
-        self.assertTrue(wait_for(lambda: self.machine_files, 15))
-        with open(self.machine_files[0], "rb") as handle:
+        self.link.send(protocol.file_pull_msg())
+        landed = os.path.join(self.machine_folder, "photo.jpg")
+        self.assertTrue(self.pump(lambda: os.path.exists(landed) and not self.owner.snapshot()["active"]
+                                  and self.owner.snapshot()["history"]))
+        self.assertTrue(wait_for(lambda: os.path.exists(landed) and os.path.getsize(landed) == len(data)))
+        with open(landed, "rb") as handle:
             self.assertEqual(handle.read(), data)
-        # Not sent back when the owner lets go: the change was the owner's own files arriving.
-        self.link.let_go()
-        self.assertIsNone(self.link.expect(protocol.MSG_CLIPBOARD, timeout=0.5))
 
-    def test_files_copied_on_the_machine_come_back_when_it_is_let_go(self):
+    def test_the_machine_s_files_come_to_the_owner_when_it_presses_the_shortcut_at_home(self):
         path, data = self.make("report.pdf", 300_000)
         route = self.link.take()
         self.assertEqual(self.link.answer(route)[0], protocol.MSG_ACCEPT)
@@ -304,15 +306,13 @@ class OverARealLink(unittest.TestCase):
         clipboard = self.link.expect(protocol.MSG_CLIPBOARD, timeout=3)
         self.assertIsNotNone(clipboard)
         self.assertNotIn("text", clipboard)
-        self.owner.arrived("machine", protocol.read_files(clipboard["files"]))
-        deadline = time.monotonic() + 15
-        while not self.owner_clipboard.paths and time.monotonic() < deadline:
-            message = self.link._claim(lambda m: m.get("type") in protocol.FILE_TYPES, 0.2)
-            if message is not None:
-                self.owner.receive("machine", message)
-        self.assertTrue(wait_for(lambda: self.owner_clipboard.paths, 5))
-        with open(self.owner_clipboard.paths[0], "rb") as handle:
+        self.owner.arrived("machine", protocol.read_files(clipboard["files"]), lambda message: (self.link.send(message), True)[1])
+        self.assertTrue(self.owner.pull())
+        landed = os.path.join(self.owner_folder, "report.pdf")
+        self.assertTrue(self.pump(lambda: bool(self.owner.snapshot()["history"])))
+        with open(landed, "rb") as handle:
             self.assertEqual(handle.read(), data)
+
 
 if __name__ == "__main__":
     unittest.main()

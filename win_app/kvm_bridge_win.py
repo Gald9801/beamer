@@ -95,6 +95,8 @@ import global_shortcut_portal
 import portal
 from core import protocol
 from core import file_transfer
+import explorer_folder
+import files_page
 from core import settings_sync
 from core import i18n
 from core.i18n import matches_translation, N_, joined, tr, trc
@@ -332,6 +334,8 @@ class StatusBridge(QObject):
     veil = Signal(bool)
     # A peer began or stopped driving this PC: its id as base64, "" when none does.
     owner = Signal(str)
+    # A file transfer moved on, began or ended, or files became ready to bring here.
+    files_changed = Signal()
     # A link learnt something about a peer and saved it, or came up or went down.
     peers_changed = Signal()
     # Either link, telling us a peer's side changed: peer, edge, stamp, author, way_back, way_back_by.
@@ -623,12 +627,13 @@ class WindowsApplication(QWidget):
             app_config.SETTINGS_LOCK,
         )
         # Files copied here go with the clipboard where the clipboard module can read and set them.
-        clipboard = platform_parts.clipboard
         self.files = (file_transfer.FileShare(
             lambda: platform_parts.clipboard,
-            written=self._files_written,
+            destination=explorer_folder.current,
             notify=lambda text: self.bridge.alert.emit("Beamer", text),
-        ) if hasattr(clipboard, "read_files") and hasattr(clipboard, "set_files") else None)
+            changed=self.bridge.files_changed.emit,
+            history_path=str(Path(self.config_path).parent / "file-history.json"),
+        ) if hasattr(platform_parts.clipboard, "read_files") else None)
         self.server = LinkResponder(
             self.book,
             self._identity,
@@ -890,6 +895,7 @@ class WindowsApplication(QWidget):
             "design": self._design_page,
             "keyboard": self._keyboard_page,
             "connection": self._connection_page,
+            "files": self._files_page,
         }
         self._page_indexes: dict = {}
         for key, name, purpose in pages_win.PAGES:
@@ -993,6 +999,15 @@ class WindowsApplication(QWidget):
         layout.addWidget(self._tray_module(current))
         layout.addWidget(self._updates_module(current))
         self._refresh_peers()
+
+    def _files_page(self, layout, current) -> None:
+        if self.files is None:
+            module = widgets.Module(tr("Files"))
+            module.body.addWidget(widgets.label(tr("Files cannot be carried on this desktop yet."), "note", wrap=True))
+            layout.addWidget(module)
+            return
+        self.files_page = files_page.FilesPage(layout, self.files)
+        self.bridge.files_changed.connect(self.files_page.refresh)
 
     def _name_module(self, current: Config) -> QWidget:
         module = widgets.Module(tr("This machine"))
@@ -1978,11 +1993,6 @@ class WindowsApplication(QWidget):
                     + ([file_transfer.CAPABILITY] if getattr(self, "files", None) is not None else []),
             "port": self._settings_port,
         }
-
-    def _files_written(self, stamp) -> None:
-        """Files a peer sent are on the clipboard: neither half may send them back as this PC's copy."""
-        self.sender.clipboard_written(stamp)
-        self.server.clipboard_written(stamp)
 
     def _zones(self) -> list:
         try:

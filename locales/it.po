@@ -165,28 +165,12 @@ msgid "Same as crossing"
 msgstr "Come il passaggio"
 
 #: core/file_transfer.py
-#, python-brace-format
-msgid "Files could not be received: {reason}"
-msgstr "Non è stato possibile ricevere i file: {reason}"
+msgid "the link to the other machine went down"
+msgstr "il collegamento con l'altro computer si è interrotto"
 
 #: core/file_transfer.py
-msgid "Files received: paste to copy them here"
-msgstr "File ricevuti: incolla per copiarli qui"
-
-#: core/file_transfer.py
-#, python-brace-format
-msgid "Files received into {folder}"
-msgstr "File ricevuti in {folder}"
-
-#: core/file_transfer.py
-#, python-brace-format
-msgid "Receiving {count} files ({size})..."
-msgstr "Ricezione di {count} file ({size})..."
-
-#: core/file_transfer.py
-#, python-brace-format
-msgid "Files could not be sent: {reason}"
-msgstr "Non è stato possibile inviare i file: {reason}"
+msgid "Files are already on their way here"
+msgstr "I file stanno già arrivando qui"
 
 #: core/file_transfer.py
 #, python-brace-format
@@ -195,8 +179,36 @@ msgstr "Spazio su disco insufficiente per {size} di file"
 
 #: core/file_transfer.py
 #, python-brace-format
-msgid "Receiving files: {percent}% of {size}"
-msgstr "Ricezione dei file: {percent}% di {size}"
+msgid "Receiving {count} files ({size}) into {folder}"
+msgstr "Ricezione di {count} file ({size}) in {folder}"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files could not be received: {reason}"
+msgstr "Non è stato possibile ricevere i file: {reason}"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files received into {folder}"
+msgstr "File ricevuti in {folder}"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "No files are copied on another machine. Copy them there first, then press {shortcut} here."
+msgstr "Nessun file è copiato su un altro computer. Copiali lì, poi premi {shortcut} qui."
+
+#: core/file_transfer.py
+msgid "cancelled here"
+msgstr "annullato qui"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files could not be sent: {reason}"
+msgstr "Non è stato possibile inviare i file: {reason}"
+
+#: core/file_transfer.py
+msgid "the other machine stopped sending"
+msgstr "l'altro computer ha smesso di inviare"
 
 #: core/fx_folio.py
 msgid "Crease"
@@ -1156,7 +1168,7 @@ msgstr "{first} e {second} passerebbero entrambi per {where} di {here}. Sposta u
 msgid "{name} has no way in: {other} already leads from the {side} edge of {here}. Give each its own thirds of that edge by moving the machines on the map, or move one to another side."
 msgstr "{name} non ha una via d'ingresso: {other} parte già dal bordo {side} di {here}. Assegna a ciascuno i propri terzi di quel bordo spostando i computer sulla mappa, o sposta uno dei due su un altro lato."
 
-#: core/ways.py mac_app/kvm_bridge_app.py win_app/pages_win.py
+#: core/ways.py mac_app/kvm_bridge_app.py win_app/files_page.py win_app/pages_win.py
 msgid "another machine"
 msgstr "un altro computer"
 
@@ -1823,7 +1835,7 @@ msgstr "Elimina…"
 msgid "Profile name"
 msgstr "Nome del profilo"
 
-#: mac_app/kvm_bridge_app.py mac_app/machines_panel.py win_app/kvm_bridge_win.py win_app/machines_win.py
+#: mac_app/kvm_bridge_app.py mac_app/machines_panel.py win_app/files_page.py win_app/kvm_bridge_win.py win_app/machines_win.py
 msgid "Cancel"
 msgstr "Annulla"
 
@@ -4263,6 +4275,100 @@ msgstr "Pressione attuale {pressure} su {threshold} unità del puntatore sul bor
 msgid "No push. Current pressure is 0 of {threshold} pointer units."
 msgstr "Nessuna spinta. La pressione attuale è 0 su {threshold} unità del puntatore."
 
+#: win_app/files_page.py
+msgid "How it works"
+msgstr "Come funziona"
+
+#: win_app/files_page.py
+msgid "Ready to bring here"
+msgstr "Pronti da portare qui"
+
+#: win_app/files_page.py
+msgid "Choose a folder..."
+msgstr "Scegli una cartella..."
+
+#: win_app/files_page.py
+msgid "Under way"
+msgstr "In corso"
+
+#: win_app/files_page.py
+msgid "History"
+msgstr "Cronologia"
+
+#: win_app/files_page.py
+msgid "Nothing sent or received yet."
+msgstr "Ancora nulla inviato o ricevuto."
+
+#: win_app/files_page.py
+msgid "Clear history"
+msgstr "Cancella la cronologia"
+
+#: win_app/files_page.py
+msgid "Bring the files into"
+msgstr "Porta i file in"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{names} and {count} more"
+msgstr "{names} e altri {count}"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Sent {count} files ({size}) to {peer}"
+msgstr "Inviati {count} file ({size}) a {peer}"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Received {count} files ({size}) from {peer}"
+msgstr "Ricevuti {count} file ({size}) da {peer}"
+
+#: win_app/files_page.py
+msgid "stopped"
+msgstr "interrotto"
+
+#: win_app/files_page.py
+msgid "Nothing yet. Copy files on another machine and come back here."
+msgstr "Ancora nulla. Copia dei file su un altro computer e torna qui."
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "failed: {reason}"
+msgstr "non riuscito: {reason}"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{done} of {total}"
+msgstr "{done} di {total}"
+
+#: win_app/files_page.py
+msgid "Open folder"
+msgstr "Apri cartella"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Copy files or folders on one machine as you always do. Move to the other machine, open the folder you want them in, and press {shortcut}. They come straight into that folder. Pressed anywhere but a folder window, they go to Downloads\\Beamer."
+msgstr "Copia file o cartelle su un computer come fai sempre. Passa all'altro computer, apri la cartella in cui li vuoi e premi {shortcut}. Arrivano direttamente in quella cartella. Premuto fuori da una finestra di cartella, vanno in Downloads\\Beamer."
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{count} files ({size}) copied on {peer}: {names}"
+msgstr "{count} file ({size}) copiati su {peer}: {names}"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Sending {count} files to {peer}"
+msgstr "Invio di {count} file a {peer}"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Receiving {count} files from {peer} into {folder}"
+msgstr "Ricezione di {count} file da {peer} in {folder}"
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{speed}/s"
+msgstr "{speed}/s"
+
 #: win_app/firewall_win.py
 msgid "Windows treats this network as public; if you trust it, change its network profile to Private in Windows Settings."
 msgstr "Windows considera pubblica questa rete; se ti fidi, cambia il profilo di rete in Privato nelle Impostazioni di Windows."
@@ -4627,6 +4733,10 @@ msgstr "Scegli una frase segreta di almeno 12 caratteri. Ti servirà a ogni avvi
 msgid "Enter the passphrase for this portable folder."
 msgstr "Inserisci la frase segreta di questa cartella portatile."
 
+#: win_app/kvm_bridge_win.py win_app/pages_win.py
+msgid "Files"
+msgstr "File"
+
 #: win_app/kvm_bridge_win.py
 msgid "Beamer requests keyboard and pointer access when each Wayland session starts."
 msgstr "Beamer chiede l'accesso a tastiera e puntatore all'inizio di ogni sessione Wayland."
@@ -4729,6 +4839,10 @@ msgstr "Portatile: impostazioni e chiavi di abbinamento restano in questa cartel
 #: win_app/kvm_bridge_win.py
 msgid "Enter the passphrase again."
 msgstr "Inserisci di nuovo la frase segreta."
+
+#: win_app/kvm_bridge_win.py
+msgid "Files cannot be carried on this desktop yet."
+msgstr "Su questo desktop i file non possono ancora essere trasferiti."
 
 #: win_app/kvm_bridge_win.py
 msgid "With it off, closing the window quits Beamer. Open Beamer again to bring the window back."
@@ -5123,6 +5237,10 @@ msgstr "Come appare il passaggio su questo PC: la luce mentre spingi verso un al
 #: win_app/pages_win.py
 msgid "This PC's network access, address and listening port; hide addresses in this window and tray."
 msgstr "Accesso alla rete, indirizzo e porta di ascolto di questo PC; nascondi gli indirizzi in questa finestra e nell'area di notifica."
+
+#: win_app/pages_win.py
+msgid "Bring files copied on another machine into a folder here, follow a transfer as it goes, and see what was sent and received."
+msgstr "Porta in una cartella qui i file copiati su un altro computer, segui un trasferimento mentre avviene e guarda cosa è stato inviato e ricevuto."
 
 #: win_app/pages_win.py
 msgid "Not paired yet, so no edge or shortcut moves input until you pair a machine above."

@@ -3,6 +3,7 @@ import copy
 import errno
 import inspect
 import logging
+import os
 import platform
 import queue
 import socket
@@ -36,6 +37,7 @@ import keyboard_layout
 import media_keys
 from core import keytable
 from core import file_transfer
+import finder_folder
 from core import link as link_module
 from core import owner as owner_module
 from core import peerlist
@@ -81,6 +83,10 @@ ROUND_TRIP_MAX_AGE_SECONDS = 5.0
 # the ownership by force after one second), then goes ahead.
 LET_GO_WAIT_SECONDS = 1.3
 OWN_PLATFORM = "macos"
+# V on every Mac keyboard layout's key position (kVK_ANSI_V), for the files shortcut.
+_KEYCODE_V = 9
+# What was sent and received (core/file_transfer.py), beside settings.json.
+FILE_HISTORY = "~/Library/Application Support/Beamer/file-history.json"
 CAPABILITIES = ("clipboard", "clipboard_image", "gestures", "media_keys", "text", "settings", "design_sync", "layout", "profiles", "displays", "ping_rtt", "identify_screens", "motion_path", "clipboard_files")
 MEDIA_KEY_NAMES = frozenset({"volume_mute", "volume_down", "volume_up", "media_next", "media_prev", "media_stop", "media_play_pause", "brightness_up", "brightness_down"})
 
@@ -638,6 +644,7 @@ class KVMController:
         self._sent_names = {}
         self.trigger_code = KEY_NAME_TO_CODE[cfg.trigger_key]
         self._jump_swallowed = set()
+        self._files_swallowed = set()
         self.jump_recording = False
         self.last_trigger_down = 0.0
         self.trigger_suppressed = False
@@ -712,7 +719,12 @@ class KVMController:
         self._clipboard_stamp = None
         self._clipboard_written_stamp = None
         # Files copied here go with the clipboard (core/file_transfer.py); the responder shares it.
-        self.files = file_transfer.FileShare(lambda: self.clipboard, written=self._files_written)
+        self.files = file_transfer.FileShare(
+            lambda: self.clipboard,
+            destination=finder_folder.current,
+            notify=lambda text: self._alert("Beamer", text),
+            history_path=os.path.expanduser(FILE_HISTORY),
+        )
         self._paired_ids = ()
         self._go_generation = 0
         self._home_notify = True
@@ -1741,6 +1753,8 @@ class KVMController:
                 self._shake_input_event(event_type, event)
             if not self._was_injected(event) and self._handle_jump_key(event_type, event):
                 return None
+            if not self._was_injected(event) and self._handle_files_shortcut(event_type, event):
+                return None
             if self.receiving:
                 # The PC is driving this Mac over the other link. Everything
                 # passes through untouched: crossing must not read a pointer
@@ -2015,6 +2029,43 @@ class KVMController:
         if step.pressure > 0:
             self._notify_crossing("tick" if step.tick else "pressure", step)
         return event
+
+    def _handle_files_shortcut(self, event_type, event):
+        """Ctrl (or Cmd), Shift, Option and V: the files copied on another machine come into the
+        folder open on the machine this Mac's input is on (core/file_transfer.py). Its V, and the
+        V's release, reach nobody."""
+        quartz = self.quartz
+        if event_type not in (quartz.kCGEventKeyDown, quartz.kCGEventKeyUp):
+            return False
+        keycode = int(quartz.CGEventGetIntegerValueField(event, quartz.kCGKeyboardEventKeycode))
+        if keycode != _KEYCODE_V:
+            return False
+        if event_type == quartz.kCGEventKeyUp:
+            if keycode in self._files_swallowed:
+                self._files_swallowed.discard(keycode)
+                return True
+            return False
+        if keycode in self._files_swallowed:
+            return True
+        flags = quartz.CGEventGetFlags(event)
+        if not (flags & quartz.kCGEventFlagMaskShift and flags & quartz.kCGEventFlagMaskAlternate
+                and flags & (quartz.kCGEventFlagMaskControl | quartz.kCGEventFlagMaskCommand)):
+            return False
+        self._files_swallowed.add(keycode)
+        peer = self.owner.on if self.owner.away else None
+        link = self._peers_up.get(peer) if peer is not None else None
+
+        def run():
+            try:
+                if peer is None:
+                    self.files.pull()
+                elif link is not None and "clipboard_files" in (getattr(link, "caps", ()) or ()):
+                    link.post(protocol.file_pull_msg())
+            except Exception:
+                self.logger.exception("the files shortcut failed")
+
+        threading.Thread(target=run, name="Beamer-files-shortcut", daemon=True).start()
+        return True
 
     def _handle_jump_key(self, event_type, event):
         """Moves input to the peer named by a local jump chord and consumes its key press."""
@@ -2529,7 +2580,9 @@ class KVMController:
                     self._step(lambda owner: (taken.append(owner.expects_clipboard(peer, began)),
                                               owner.clipboard_arrived(peer, began, clean))[1])
                     if taken and taken[0] and read["files"] is not None and "clipboard_files" in link.caps:
-                        self.files.arrived(("initiator", peer), read["files"], link.post)
+                        self.files.arrived(("initiator", peer), read["files"], link.post, self._up_names.get(peer))
+                    elif taken and taken[0]:
+                        self.files.forget(("initiator", peer))
             elif kind in protocol.FILE_TYPES:
                 if "clipboard_files" in link.caps:
                     self.files.receive(("initiator", peer), message)
@@ -2967,25 +3020,14 @@ class KVMController:
             image = None
         files = None
         if "clipboard_files" in caps:
-            files = self.files.offer(("initiator", peer))
+            files = self.files.offer(("initiator", peer), link.post, link.backlog, self._up_names.get(peer))
             if files is not None:
                 # Finder also puts the names on as text; the files stand for themselves.
                 text = image = None
         if not text and image is None and files is None:
             self.logger.debug("local clipboard is empty; not sending it")
             return None
-        sent = link.post(protocol.clipboard_msg(text or None, image, files))
-        if sent and files is not None:
-            self.files.send(("initiator", peer), link.post, link.backlog)
-        return sent
-
-    def _files_written(self, stamp):
-        """Files a peer sent are on the pasteboard: neither half may send them back as this Mac's copy."""
-        with self._owner_lock:
-            self._clipboard_stamp = stamp
-            self._clipboard_written_stamp = stamp
-        if self.responder is not None:
-            self.responder.clipboard_written(stamp)
+        return link.post(protocol.clipboard_msg(text or None, image, files))
 
     def _set_clipboard(self, message):
         read = protocol.read_clipboard(message)

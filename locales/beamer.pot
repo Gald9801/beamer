@@ -163,27 +163,11 @@ msgid "Same as crossing"
 msgstr ""
 
 #: core/file_transfer.py
-#, python-brace-format
-msgid "Files could not be received: {reason}"
+msgid "the link to the other machine went down"
 msgstr ""
 
 #: core/file_transfer.py
-msgid "Files received: paste to copy them here"
-msgstr ""
-
-#: core/file_transfer.py
-#, python-brace-format
-msgid "Files received into {folder}"
-msgstr ""
-
-#: core/file_transfer.py
-#, python-brace-format
-msgid "Receiving {count} files ({size})..."
-msgstr ""
-
-#: core/file_transfer.py
-#, python-brace-format
-msgid "Files could not be sent: {reason}"
+msgid "Files are already on their way here"
 msgstr ""
 
 #: core/file_transfer.py
@@ -193,7 +177,35 @@ msgstr ""
 
 #: core/file_transfer.py
 #, python-brace-format
-msgid "Receiving files: {percent}% of {size}"
+msgid "Receiving {count} files ({size}) into {folder}"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files could not be received: {reason}"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files received into {folder}"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "No files are copied on another machine. Copy them there first, then press {shortcut} here."
+msgstr ""
+
+#: core/file_transfer.py
+msgid "cancelled here"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files could not be sent: {reason}"
+msgstr ""
+
+#: core/file_transfer.py
+msgid "the other machine stopped sending"
 msgstr ""
 
 #: core/fx_folio.py
@@ -1154,7 +1166,7 @@ msgstr ""
 msgid "{name} has no way in: {other} already leads from the {side} edge of {here}. Give each its own thirds of that edge by moving the machines on the map, or move one to another side."
 msgstr ""
 
-#: core/ways.py mac_app/kvm_bridge_app.py win_app/pages_win.py
+#: core/ways.py mac_app/kvm_bridge_app.py win_app/files_page.py win_app/pages_win.py
 msgid "another machine"
 msgstr ""
 
@@ -1803,7 +1815,7 @@ msgstr ""
 msgid "Profile name"
 msgstr ""
 
-#: mac_app/kvm_bridge_app.py mac_app/machines_panel.py win_app/kvm_bridge_win.py win_app/machines_win.py
+#: mac_app/kvm_bridge_app.py mac_app/machines_panel.py win_app/files_page.py win_app/kvm_bridge_win.py win_app/machines_win.py
 msgid "Cancel"
 msgstr ""
 
@@ -4201,6 +4213,100 @@ msgstr ""
 msgid "No push. Current pressure is 0 of {threshold} pointer units."
 msgstr ""
 
+#: win_app/files_page.py
+msgid "How it works"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Ready to bring here"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Choose a folder..."
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Under way"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "History"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Nothing sent or received yet."
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Clear history"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Bring the files into"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{names} and {count} more"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Sent {count} files ({size}) to {peer}"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Received {count} files ({size}) from {peer}"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "stopped"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Nothing yet. Copy files on another machine and come back here."
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "failed: {reason}"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{done} of {total}"
+msgstr ""
+
+#: win_app/files_page.py
+msgid "Open folder"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Copy files or folders on one machine as you always do. Move to the other machine, open the folder you want them in, and press {shortcut}. They come straight into that folder. Pressed anywhere but a folder window, they go to Downloads\\Beamer."
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{count} files ({size}) copied on {peer}: {names}"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Sending {count} files to {peer}"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "Receiving {count} files from {peer} into {folder}"
+msgstr ""
+
+#: win_app/files_page.py
+#, python-brace-format
+msgid "{speed}/s"
+msgstr ""
+
 #: win_app/firewall_win.py
 msgid "Windows treats this network as public; if you trust it, change its network profile to Private in Windows Settings."
 msgstr ""
@@ -4561,6 +4667,10 @@ msgstr ""
 msgid "Enter the passphrase for this portable folder."
 msgstr ""
 
+#: win_app/kvm_bridge_win.py win_app/pages_win.py
+msgid "Files"
+msgstr ""
+
 #: win_app/kvm_bridge_win.py
 msgid "Beamer requests keyboard and pointer access when each Wayland session starts."
 msgstr ""
@@ -4660,6 +4770,10 @@ msgstr ""
 
 #: win_app/kvm_bridge_win.py
 msgid "Enter the passphrase again."
+msgstr ""
+
+#: win_app/kvm_bridge_win.py
+msgid "Files cannot be carried on this desktop yet."
 msgstr ""
 
 #: win_app/kvm_bridge_win.py
@@ -5047,6 +5161,10 @@ msgstr ""
 
 #: win_app/pages_win.py
 msgid "This PC's network access, address and listening port; hide addresses in this window and tray."
+msgstr ""
+
+#: win_app/pages_win.py
+msgid "Bring files copied on another machine into a folder here, follow a transfer as it goes, and see what was sent and received."
 msgstr ""
 
 #: win_app/pages_win.py

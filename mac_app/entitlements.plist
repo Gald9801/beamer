@@ -6,5 +6,8 @@
          runtime without this, and `import Foundation` never finishes. Native arm64 needs nothing. -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+    <!-- The files shortcut asks Finder which folder is open (finder_folder.py). -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>

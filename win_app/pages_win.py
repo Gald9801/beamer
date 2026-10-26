@@ -30,6 +30,9 @@ PAGES = (
      "pointer lands.")),
     ("connection", N_("Connection"),
      N_("This PC's network access, address and listening port; hide addresses in this window and tray.")),
+    ("files", N_("Files"),
+     N_("Bring files copied on another machine into a folder here, follow a transfer as it goes, and "
+     "see what was sent and received.")),
 )
 KEYS = tuple(page[0] for page in PAGES)
 # Under the purpose on the pages whose settings are this PC's alone, so nobody looks for another
