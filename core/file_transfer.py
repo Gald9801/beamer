@@ -47,6 +47,39 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(1, 10)), *(f
 _BAD_CHARS = set('<>:"|?*\\')
 
 
+# Progress is told at these fractions of the bytes, so a long transfer says it is moving.
+PROGRESS_STEPS = (0.25, 0.5, 0.75)
+# Below this a transfer is over before a progress line would help.
+PROGRESS_MIN_BYTES = 8 * 1024 * 1024
+_EXTENDED = "\\\\?\\"
+_EXTENDED_UNC = "\\\\?\\UNC\\"
+
+
+def _long(path):
+    """`path` as Windows takes one past MAX_PATH (260 characters): a deep project folder under
+    Downloads/Beamer passes it easily. Elsewhere, and already extended, unchanged."""
+    if os.name != "nt" or path.startswith(_EXTENDED):
+        return path
+    path = os.path.abspath(path)
+    if path.startswith("\\\\"):
+        return _EXTENDED_UNC + path[2:]
+    return _EXTENDED + path
+
+
+def _short(path):
+    """The plain form of a path _long made, for the clipboard and the user."""
+    if path.startswith(_EXTENDED_UNC):
+        return "\\\\" + path[len(_EXTENDED_UNC):]
+    return path[len(_EXTENDED):] if path.startswith(_EXTENDED) else path
+
+
+def size_text(size):
+    for unit, step in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if size >= step:
+            return f"{size / step:.1f} {unit}"
+    return f"{size} B"
+
+
 def downloads_dir():
     """Where received files go: Downloads/Beamer in the user's home."""
     return os.path.join(os.path.expanduser("~"), "Downloads", "Beamer")
@@ -73,7 +106,7 @@ def collect(paths):
         return True
 
     for path in paths:
-        path = os.path.abspath(path)
+        path = _long(os.path.abspath(path))
         name = os.path.basename(path.rstrip("\\/"))
         if not name:
             continue
@@ -120,16 +153,22 @@ def safe_part(part):
 class _Outgoing:
     def __init__(self, xfer, items, sources):
         self.xfer = xfer
+        self.total = sum(item.get("s", 0) for item in items)
         self.items = items
         self.sources = sources
         self.cancelled = threading.Event()
 
 
 class _Incoming:
-    def __init__(self, xfer, items, staging, stamp):
+    def __init__(self, xfer, items, staging, stamp, reply=None):
         self.xfer = xfer
         self.items = items
         self.staging = staging
+        # Posts on the link the files come on: a `file_cancel` back stops the sender.
+        self.reply = reply
+        self.total = sum(item.get("s", 0) for item in items)
+        self.received = 0
+        self.step = 0
         self.paths = []
         self.stamp = stamp
         self.index = -1          # the file being written
@@ -145,7 +184,8 @@ class FileShare:
       `change_stamp()`.
     - `written(stamp)`: told after files are put on the clipboard, with the clipboard's stamp, so
       the app counts that change as a peer's and does not send it back.
-    - `notify(text)`: optional, a short line for the user (a transfer finished or failed)."""
+    - `notify(text)`: optional, a short line for the user (a transfer began, moved on, finished or
+      failed)."""
 
     def __init__(self, clipboard, written=None, notify=None, folder=None):
         self._clipboard = clipboard
@@ -197,6 +237,7 @@ class FileShare:
 
     def _send(self, peer, out, post, backlog):
         started, sent = time.monotonic(), 0
+        LOGGER.info("Sending %d files, %s", len(out.items), size_text(out.total))
 
         def put(message):
             while backlog() >= SEND_AHEAD:
@@ -222,9 +263,10 @@ class FileShare:
                         sent += len(chunk)
             if put(protocol.file_end_msg(out.xfer)):
                 LOGGER.info("Sent %d files, %d bytes, in %.1fs", len(out.items), sent, time.monotonic() - started)
-        except Exception:
+        except Exception as exc:
             LOGGER.exception("Sending files failed")
             post(protocol.file_cancel_msg(out.xfer))
+            self._notify(tr("Files could not be sent: {reason}").format(reason=exc))
         finally:
             with self._lock:
                 if self._offers.get(peer) is out:
@@ -242,32 +284,43 @@ class FileShare:
 
     # Receiving
 
-    def arrived(self, peer, files):
+    def arrived(self, peer, files, reply=None):
         """A `clipboard` taken from `peer` named `files` (protocol.read_files): its pieces may come.
-        A transfer still coming from that peer is given up."""
+        A transfer still coming from that peer is given up. `reply(message)` posts on the link they
+        come on, so a transfer that fails here stops the sender."""
         try:
             stamp = self._clipboard().change_stamp()
         except Exception:
             stamp = None
         folder = self._folder()
-        staging = os.path.join(folder, f".incoming-{files['x']}-{os.getpid()}")
+        staging = _long(os.path.join(folder, f".incoming-{files['x']}-{os.getpid()}"))
         total = sum(item.get("s", 0) for item in files["items"])
+
+        def refuse(text):
+            self._notify(text)
+            if reply is not None:
+                reply(protocol.file_cancel_msg(files["x"]))
+
         try:
             os.makedirs(staging, exist_ok=True)
             if shutil.disk_usage(staging).free < total + 64 * 1024**2:
                 LOGGER.warning("Not enough disk space for %d bytes of files", total)
                 shutil.rmtree(staging, ignore_errors=True)
+                refuse(tr("Not enough disk space for {size} of files").format(size=size_text(total)))
                 return
-        except OSError:
+        except OSError as exc:
             LOGGER.exception("Could not make a folder for the files")
+            refuse(tr("Files could not be received: {reason}").format(reason=exc))
             return
-        incoming = _Incoming(files["x"], files["items"], staging, stamp)
+        incoming = _Incoming(files["x"], files["items"], staging, stamp, reply)
         with self._lock:
             older = self._incoming.get(peer)
             self._incoming[peer] = incoming
         if older is not None:
             self._queue(lambda: self._discard(older))
         LOGGER.info("Receiving %d files, %d bytes", len(files["items"]), total)
+        if total >= PROGRESS_MIN_BYTES:
+            self._notify(tr("Receiving {count} files ({size})...").format(count=len(files["items"]), size=size_text(total)))
 
     def receive(self, peer, message):
         """A `file_data`, `file_end` or `file_cancel` from `peer`; one for no transfer of its is dropped."""
@@ -278,6 +331,11 @@ class FileShare:
         with self._lock:
             incoming = self._incoming.get(peer)
             if incoming is None or incoming.xfer != xfer:
+                out = self._offers.get(peer)
+                if kind == protocol.MSG_FILE_CANCEL and out is not None and out.xfer == xfer:
+                    # The receiver could not take them: stop sending.
+                    LOGGER.info("The other machine gave the files up; stopped sending")
+                    out.cancelled.set()
                 return
             if kind != protocol.MSG_FILE_DATA:
                 del self._incoming[peer]
@@ -354,14 +412,29 @@ class FileShare:
                 raise ValueError("a piece out of place")
             incoming.handle.write(chunk)
             incoming.offset += len(chunk)
+            incoming.received += len(chunk)
+            while (incoming.total >= PROGRESS_MIN_BYTES and incoming.step < len(PROGRESS_STEPS)
+                   and incoming.received >= incoming.total * PROGRESS_STEPS[incoming.step]):
+                percent = int(PROGRESS_STEPS[incoming.step] * 100)
+                incoming.step += 1
+                self._notify(tr("Receiving files: {percent}% of {size}").format(percent=percent, size=size_text(incoming.total)))
         except (OSError, ValueError) as exc:
             LOGGER.warning("Receiving files failed: %s", exc)
-            self._fail(incoming)
+            self._fail(incoming, exc)
 
-    def _fail(self, incoming):
+    def _fail(self, incoming, reason):
         incoming.failed = True
+        with self._lock:
+            for peer, current in list(self._incoming.items()):
+                if current is incoming:
+                    del self._incoming[peer]
+        if incoming.reply is not None:
+            try:
+                incoming.reply(protocol.file_cancel_msg(incoming.xfer))
+            except Exception:
+                LOGGER.exception("Could not tell the sender to stop")
         self._discard(incoming)
-        self._notify(tr("Files from the other machine could not be received"))
+        self._notify(tr("Files could not be received: {reason}").format(reason=reason))
 
     def _discard(self, incoming):
         if incoming.handle is not None:
@@ -382,14 +455,15 @@ class FileShare:
             os.replace(incoming.staging, final)
         except (OSError, ValueError) as exc:
             LOGGER.warning("Receiving files failed: %s", exc)
-            self._fail(incoming)
+            self._fail(incoming, exc)
             return
         tops = []
         for item in incoming.items:
             top = safe_part(item["p"].split("/")[0])
             if top not in tops:
                 tops.append(top)
-        paths = [os.path.join(final, top) for top in tops]
+        paths = [_short(os.path.join(final, top)) for top in tops]
+        final = _short(final)
         LOGGER.info("Received %d files into %s", len(incoming.items), final)
         clipboard = self._clipboard()
         try:
@@ -406,7 +480,7 @@ class FileShare:
         self._notify(tr("Files received into {folder}").format(folder=final))
 
     def _final_folder(self):
-        base = os.path.join(self._folder(), time.strftime("%Y-%m-%d %H.%M.%S"))
+        base = _long(os.path.join(self._folder(), time.strftime("%Y-%m-%d %H.%M.%S")))
         final, n = base, 2
         while os.path.exists(final):
             final, n = f"{base} ({n})", n + 1

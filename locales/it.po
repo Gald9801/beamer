@@ -165,8 +165,9 @@ msgid "Same as crossing"
 msgstr "Come il passaggio"
 
 #: core/file_transfer.py
-msgid "Files from the other machine could not be received"
-msgstr "Non è stato possibile ricevere i file dall'altro computer"
+#, python-brace-format
+msgid "Files could not be received: {reason}"
+msgstr "Non è stato possibile ricevere i file: {reason}"
 
 #: core/file_transfer.py
 msgid "Files received: paste to copy them here"
@@ -176,6 +177,26 @@ msgstr "File ricevuti: incolla per copiarli qui"
 #, python-brace-format
 msgid "Files received into {folder}"
 msgstr "File ricevuti in {folder}"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Receiving {count} files ({size})..."
+msgstr "Ricezione di {count} file ({size})..."
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files could not be sent: {reason}"
+msgstr "Non è stato possibile inviare i file: {reason}"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Not enough disk space for {size} of files"
+msgstr "Spazio su disco insufficiente per {size} di file"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Receiving files: {percent}% of {size}"
+msgstr "Ricezione dei file: {percent}% di {size}"
 
 #: core/fx_folio.py
 msgid "Crease"

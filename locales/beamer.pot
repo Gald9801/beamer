@@ -163,7 +163,8 @@ msgid "Same as crossing"
 msgstr ""
 
 #: core/file_transfer.py
-msgid "Files from the other machine could not be received"
+#, python-brace-format
+msgid "Files could not be received: {reason}"
 msgstr ""
 
 #: core/file_transfer.py
@@ -173,6 +174,26 @@ msgstr ""
 #: core/file_transfer.py
 #, python-brace-format
 msgid "Files received into {folder}"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Receiving {count} files ({size})..."
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files could not be sent: {reason}"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Not enough disk space for {size} of files"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Receiving files: {percent}% of {size}"
 msgstr ""
 
 #: core/fx_folio.py

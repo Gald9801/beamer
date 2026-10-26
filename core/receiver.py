@@ -1766,7 +1766,7 @@ class LinkResponder:
                 return
             visit = self._visit
         if files is not None:
-            self._files.arrived(("responder", link.peer_id), files)
+            self._files.arrived(("responder", link.peer_id), files, link.post)
         if text is None and image is None:
             return
         self._clipboard_later(lambda: self._set_clipboard(link, visit, text, image), (id(link), visit))

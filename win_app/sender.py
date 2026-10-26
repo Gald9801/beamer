@@ -1065,7 +1065,8 @@ class LinkSender:
                     self._queue(actions)
                 if (taken and read["files"] is not None and self._files is not None
                         and "clipboard_files" in self.links.caps(peer)):
-                    self._files.arrived(("initiator", peer), read["files"])
+                    self._files.arrived(("initiator", peer), read["files"],
+                                        lambda message: self.links.post(peer, message))
                 self._report(actions)
         elif kind in protocol.FILE_TYPES:
             if self._files is not None and "clipboard_files" in self.links.caps(peer):

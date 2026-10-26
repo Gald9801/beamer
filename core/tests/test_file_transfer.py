@@ -163,8 +163,84 @@ class Manifest(unittest.TestCase):
         self.assertLess(len(protocol.dumps_message(message)), protocol.SMALL_MESSAGE_BYTES)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class Failures(unittest.TestCase):
+    """What a failed or long transfer tells the user, and that a failure here stops the sender."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="beamer-files-")
+        self.addCleanup(lambda: shutil.rmtree(file_transfer._long(self.root), ignore_errors=True))
+        self.notes = []
+        self.receiving_clipboard = FileClipboard()
+        self.receiver = file_transfer.FileShare(lambda: self.receiving_clipboard, written=lambda stamp: None,
+                                                notify=self.notes.append,
+                                                folder=lambda: os.path.join(self.root, "inbox"))
+
+    def carry(self, paths, sender_notes=None):
+        sender = file_transfer.FileShare(lambda: FileClipboard(paths), notify=(sender_notes or []).append)
+        files = sender.offer("peer")
+        sent = []
+
+        def reply(message):
+            sender.receive("peer", protocol.parse_message(protocol.dumps_message(message)))
+            return True
+
+        self.receiver.arrived("peer", protocol.read_files(files), reply)
+
+        def post(message):
+            sent.append(message["type"])
+            self.receiver.receive("peer", protocol.parse_message(protocol.dumps_message(message)))
+            return True
+
+        sender.send("peer", post, lambda: 0)
+        return sent
+
+    def test_a_folder_deeper_than_windows_paths_go_arrives(self):
+        deep = os.path.join(self.root, "project", *(["a_rather_long_folder_name_" + str(n) for n in range(12)]))
+        os.makedirs(file_transfer._long(deep))
+        target = os.path.join(deep, "asset.uasset")
+        self.assertGreater(len(target), 300)
+        with open(file_transfer._long(target), "wb") as handle:
+            handle.write(b"deep bytes")
+        self.carry([os.path.join(self.root, "project")])
+        self.assertTrue(wait_for(lambda: self.receiving_clipboard.paths), self.notes)
+        landed = os.path.join(self.receiving_clipboard.paths[0], *os.path.relpath(target, os.path.join(self.root, "project")).split(os.sep))
+        with open(file_transfer._long(landed), "rb") as handle:
+            self.assertEqual(handle.read(), b"deep bytes")
+        self.assertFalse(self.receiving_clipboard.paths[0].startswith("\\\\?\\"))
+
+    def test_a_failure_here_says_why_and_stops_the_sender(self):
+        source = os.path.join(self.root, "big.bin")
+        with open(source, "wb") as handle:
+            handle.write(os.urandom(protocol.FILE_CHUNK_BYTES * 40))
+        writes = []
+        original = file_transfer.FileShare._write
+
+        def failing(share, incoming, index, offset, chunk):
+            writes.append(offset)
+            if len(writes) == 3:
+                raise_into = OSError("disk unplugged")
+                share._fail(incoming, raise_into)
+                return
+            original(share, incoming, index, offset, chunk)
+
+        file_transfer.FileShare._write = failing
+        self.addCleanup(setattr, file_transfer.FileShare, "_write", original)
+        sent = self.carry([source])
+        self.assertTrue(wait_for(lambda: any("disk unplugged" in note for note in self.notes)), self.notes)
+        time.sleep(0.3)
+        self.assertLess(sent.count(protocol.MSG_FILE_DATA), 40)
+        self.assertNotIn(protocol.MSG_FILE_END, sent)
+
+    def test_a_long_transfer_says_it_began_and_how_far_it_got(self):
+        source = os.path.join(self.root, "video.mp4")
+        with open(source, "wb") as handle:
+            handle.write(os.urandom(file_transfer.PROGRESS_MIN_BYTES + 1))
+        self.carry([source])
+        self.assertTrue(wait_for(lambda: self.receiving_clipboard.paths), self.notes)
+        self.assertTrue(self.notes[0].startswith("Receiving 1 files"), self.notes)
+        self.assertEqual([note for note in self.notes if "%" in note],
+                         [f"Receiving files: {p}% of 8.0 MB" for p in (25, 50, 75)])
+        self.assertEqual(self.notes[-1], "Files received: paste to copy them here")
 
 
 class OverARealLink(unittest.TestCase):
@@ -237,3 +313,6 @@ class OverARealLink(unittest.TestCase):
         self.assertTrue(wait_for(lambda: self.owner_clipboard.paths, 5))
         with open(self.owner_clipboard.paths[0], "rb") as handle:
             self.assertEqual(handle.read(), data)
+
+if __name__ == "__main__":
+    unittest.main()

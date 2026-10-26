@@ -2529,7 +2529,7 @@ class KVMController:
                     self._step(lambda owner: (taken.append(owner.expects_clipboard(peer, began)),
                                               owner.clipboard_arrived(peer, began, clean))[1])
                     if taken and taken[0] and read["files"] is not None and "clipboard_files" in link.caps:
-                        self.files.arrived(("initiator", peer), read["files"])
+                        self.files.arrived(("initiator", peer), read["files"], link.post)
             elif kind in protocol.FILE_TYPES:
                 if "clipboard_files" in link.caps:
                     self.files.receive(("initiator", peer), message)
