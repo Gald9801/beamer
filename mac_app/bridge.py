@@ -35,6 +35,7 @@ import frame_clock
 import keyboard_layout
 import media_keys
 from core import keytable
+from core import file_transfer
 from core import link as link_module
 from core import owner as owner_module
 from core import peerlist
@@ -80,7 +81,7 @@ ROUND_TRIP_MAX_AGE_SECONDS = 5.0
 # the ownership by force after one second), then goes ahead.
 LET_GO_WAIT_SECONDS = 1.3
 OWN_PLATFORM = "macos"
-CAPABILITIES = ("clipboard", "clipboard_image", "gestures", "media_keys", "text", "settings", "design_sync", "layout", "profiles", "displays", "ping_rtt", "identify_screens", "motion_path")
+CAPABILITIES = ("clipboard", "clipboard_image", "gestures", "media_keys", "text", "settings", "design_sync", "layout", "profiles", "displays", "ping_rtt", "identify_screens", "motion_path", "clipboard_files")
 MEDIA_KEY_NAMES = frozenset({"volume_mute", "volume_down", "volume_up", "media_next", "media_prev", "media_stop", "media_play_pause", "brightness_up", "brightness_down"})
 
 # Why input came home, in words, for the alert. A why that is not here comes home quietly.
@@ -710,6 +711,8 @@ class KVMController:
         self.owner = owner_module.Owner(protocol.id_text(self.identity()["id"]), clock, resistance_px=int(self.crossing.resistance_px))
         self._clipboard_stamp = None
         self._clipboard_written_stamp = None
+        # Files copied here go with the clipboard (core/file_transfer.py); the responder shares it.
+        self.files = file_transfer.FileShare(lambda: self.clipboard, written=self._files_written)
         self._paired_ids = ()
         self._go_generation = 0
         self._home_notify = True
@@ -2361,6 +2364,7 @@ class KVMController:
             self._peers_up.pop(peer, None)
             self.reset_desk_peer(peer)
             self._forget_held(peer)
+            self.files.link_lost(("initiator", peer))
             self._step(lambda owner: owner.link_down(peer))
 
     def _connection_worker(self):
@@ -2521,7 +2525,14 @@ class KVMController:
                 if read is not None:
                     # Rebuilt from what was read: the owner sends it on to the machine input is on.
                     clean = protocol.clipboard_msg(read["text"], read["image"])
-                    self._step(lambda owner: owner.clipboard_arrived(peer, began, clean))
+                    taken = []
+                    self._step(lambda owner: (taken.append(owner.expects_clipboard(peer, began)),
+                                              owner.clipboard_arrived(peer, began, clean))[1])
+                    if taken and taken[0] and read["files"] is not None and "clipboard_files" in link.caps:
+                        self.files.arrived(("initiator", peer), read["files"])
+            elif kind in protocol.FILE_TYPES:
+                if "clipboard_files" in link.caps:
+                    self.files.receive(("initiator", peer), message)
             elif kind == protocol.MSG_ARRANGEMENT:
                 self._handle_arrangement(message, peer)
             elif kind == protocol.MSG_SETTINGS:
@@ -2954,10 +2965,27 @@ class KVMController:
             if "clipboard_image" in caps:
                 self.logger.warning("local clipboard image (%d bytes) is past what a clipboard may carry; skipping the image", len(image))
             image = None
-        if not text and image is None:
+        files = None
+        if "clipboard_files" in caps:
+            files = self.files.offer(("initiator", peer))
+            if files is not None:
+                # Finder also puts the names on as text; the files stand for themselves.
+                text = image = None
+        if not text and image is None and files is None:
             self.logger.debug("local clipboard is empty; not sending it")
             return None
-        return link.post(protocol.clipboard_msg(text or None, image))
+        sent = link.post(protocol.clipboard_msg(text or None, image, files))
+        if sent and files is not None:
+            self.files.send(("initiator", peer), link.post, link.backlog)
+        return sent
+
+    def _files_written(self, stamp):
+        """Files a peer sent are on the pasteboard: neither half may send them back as this Mac's copy."""
+        with self._owner_lock:
+            self._clipboard_stamp = stamp
+            self._clipboard_written_stamp = stamp
+        if self.responder is not None:
+            self.responder.clipboard_written(stamp)
 
     def _set_clipboard(self, message):
         read = protocol.read_clipboard(message)

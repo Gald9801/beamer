@@ -74,6 +74,7 @@ class WindowsInput:
             identify_callback=controller.receive_identify_screens,
             link_callback=self._on_link,
             announce=self._announce,
+            files=getattr(controller, "files", None),
         )
         controller.responder = self.server
         controller.send_peer_home = self.server.send_home

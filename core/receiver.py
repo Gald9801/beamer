@@ -430,6 +430,10 @@ class _Link:
             self.cond.notify_all()
             return True
 
+    def backlog(self) -> int:
+        with self.cond:
+            return len(self.outbox)
+
     def receive(self, message, size: int) -> bool:
         move = (protocol.read_input(message)
                 if isinstance(message, dict) and message.get("type") == protocol.MSG_MOUSEMOVE else None)
@@ -545,6 +549,7 @@ class LinkResponder:
         link_callback=None,
         announce=None,
         listener=None,
+        files=None,
     ) -> None:
         self._book = book
         self._identity = identity
@@ -565,6 +570,8 @@ class LinkResponder:
         }
         self._announce = announce or (lambda peer: [])
         self._prebound_listener = listener
+        # core.file_transfer.FileShare, or None: files on the clipboard go and come on these links.
+        self._files = files
         # This machine's speed for a peer's pointer and scroll, and whether
         # its edges are held (Pause crossing, a full-screen app), which keeps the zones from firing.
         self.input_scale: Optional[InputScale] = None
@@ -957,6 +964,8 @@ class LinkResponder:
                     del self._links[link.peer_id]
                 after = self._end_locked(link)
             self._run(after)
+            if current and self._files is not None:
+                self._files.link_lost(("responder", link.peer_id))
             if reader.ident is not None:
                 reader.join(timeout=1.0)
             if writer.ident is not None:
@@ -1050,6 +1059,9 @@ class LinkResponder:
                 self._on_focus(link, message)
             elif kind == protocol.MSG_CLIPBOARD:
                 self._on_clipboard(link, message)
+            elif kind in protocol.FILE_TYPES:
+                if self._files is not None and "clipboard_files" in link.own_caps:
+                    self._files.receive(("responder", link.peer_id), message)
             elif kind == protocol.MSG_ARRANGEMENT:
                 read = protocol.read_arrangement_v6(message, time.time())
                 if read is not None:
@@ -1746,12 +1758,17 @@ class LinkResponder:
             return
         text = read["text"] if read["text"] and "clipboard" in link.own_caps else None
         image = read["image"] if "clipboard_image" in link.own_caps else None
-        if text is None and image is None:
+        files = read["files"] if self._files is not None and "clipboard_files" in link.own_caps else None
+        if text is None and image is None and files is None:
             return
         with self._lock:
             if self._owner is not link:
                 return
             visit = self._visit
+        if files is not None:
+            self._files.arrived(("responder", link.peer_id), files)
+        if text is None and image is None:
+            return
         self._clipboard_later(lambda: self._set_clipboard(link, visit, text, image), (id(link), visit))
 
     def _clipboard_later(self, job, write=None) -> None:
@@ -1813,6 +1830,12 @@ class LinkResponder:
                 time.sleep(CLIPBOARD_RETRY_SECONDS)
         LOGGER.warning("Could not set the clipboard %s sent", link.name)
 
+    def clipboard_written(self, stamp) -> None:
+        """Files the owner sent were put on the clipboard: its letting go must not send them back."""
+        with self._lock:
+            if self._owner is not None:
+                self._clipboard_mark = stamp
+
     def _clipboard_stamp(self):
         stamp = getattr(self._clipboard_module(), "change_stamp", None)
         if stamp is None:
@@ -1865,11 +1888,19 @@ class LinkResponder:
             text = None
         if "clipboard_image" not in link.caps or image is None or not protocol.png_fits(image):
             image = None
-        if text is None and image is None:
+        files = None
+        if self._files is not None and "clipboard_files" in link.caps and "clipboard_files" in link.own_caps:
+            files = self._files.offer(("responder", link.peer_id))
+            if files is not None:
+                # A file manager also puts the names on as text; the files stand for themselves.
+                text = image = None
+        if text is None and image is None and files is None:
             return
         with self._lock:
-            if self._visit == visit and self._owner is None and self._clipboard_stamp() == stamp:
-                link.post(protocol.clipboard_msg(text, image))
+            sent = (self._visit == visit and self._owner is None and self._clipboard_stamp() == stamp
+                    and link.post(protocol.clipboard_msg(text, image, files)))
+        if sent and files is not None:
+            self._files.send(("responder", link.peer_id), link.post, link.backlog)
 
     # Landing and the lock screen
 

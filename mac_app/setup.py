@@ -81,7 +81,7 @@ setup(
                 "objc", "AppKit", "ApplicationServices", "Quartz", "UserNotifications",
                 "core.crash_log", "core.effects", "core.i18n", "core.locale", "core.idle_pointer", "core.ignored", "core.keytable", "core.link", "core.owner", "core.pairing",
                 "core.peerlist", "core.protocol", "core.receiver", "core.return_edge", "core.settings_sync",
-                "core.updates", "core.wol", "core.identify_screens",
+                "core.updates", "core.wol", "core.identify_screens", "core.file_transfer",
                 "core.fx_ink", "core.fx_instrument", "core.fx_membrane", "core.fx_sparks", "core.fx_warp",
                 "core.fx_light", "core.fx_material", "core.fx_folio", "core.fx_selvedge",
             ],

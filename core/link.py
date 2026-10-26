@@ -51,7 +51,8 @@ FOLLOW_AFTER_SECONDS = 10.0
 FOLLOW_EVERY_SECONDS = 30.0
 SEND_CHUNK = 65536
 _CAP_FOR = {protocol.MSG_GESTURE: "gestures", protocol.MSG_TEXT: "text", protocol.MSG_SETTINGS: "settings",
-            protocol.MSG_IDENTIFY_SCREENS: "identify_screens"}
+            protocol.MSG_IDENTIFY_SCREENS: "identify_screens",
+            **{kind: "clipboard_files" for kind in protocol.FILE_TYPES}}
 
 
 class LinkEnded(Exception):
@@ -233,6 +234,11 @@ class OutboundLink:
         the peer this link is."""
         with self._lock:
             return len(self._outbox) + len(self._sent_at)
+
+    def backlog(self):
+        """Messages queued and not yet written, of any kind: what a file transfer waits on."""
+        with self._lock:
+            return len(self._outbox)
 
     # Reading the entry
 
@@ -781,7 +787,9 @@ class OutboundLink:
             if "clipboard_image" not in self._caps:
                 data.pop("image", None)
                 data.pop("image_format", None)
-            if not data.get("text") and "image" not in data:
+            if "clipboard_files" not in self._caps:
+                data.pop("files", None)
+            if not data.get("text") and "image" not in data and "files" not in data:
                 return True
             message = {"type": kind, "data": data}
         elif _CAP_FOR.get(kind) is not None and _CAP_FOR[kind] not in self._caps:

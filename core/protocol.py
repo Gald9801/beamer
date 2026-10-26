@@ -271,10 +271,13 @@ def scroll_msg(dy, dx=0.0, mode: str = "line") -> dict:
     return {"type": MSG_SCROLL, "data": {"dy": dy, "dx": dx, "mode": mode}}
 
 
-def clipboard_msg(text: str = None, image: bytes = None) -> dict:
+def clipboard_msg(text: str = None, image: bytes = None, files: dict = None) -> dict:
     """Whatever was on the clipboard at the switch: `text`, and an optional PNG under `image`
-    (base64) with `image_format` naming it. Each key is omitted when absent (WIRE.md section 3)."""
+    (base64) with `image_format` naming it, and the files it names under `files` (a transfer's
+    `x` and `items`, read_files). Each key is omitted when absent (WIRE.md section 3)."""
     data = {}
+    if files is not None:
+        data["files"] = files
     if text is not None:
         data["text"] = text
     if image is not None:
@@ -426,6 +429,13 @@ MSG_REFUSE = "refuse"
 MSG_ACCEPTS = "accepts"
 MSG_PAIRED = "paired"
 MSG_TEXT = "text"
+# Files on the clipboard (this fork's addition, WIRE.md section 5, files): the `clipboard` names
+# them under `files`, and their bytes follow on the same link in `file_data` pieces small enough
+# to sit between input messages, then `file_end`; `file_cancel` gives a transfer up.
+MSG_FILE_DATA = "file_data"
+MSG_FILE_END = "file_end"
+MSG_FILE_CANCEL = "file_cancel"
+FILE_TYPES = frozenset({MSG_FILE_DATA, MSG_FILE_END, MSG_FILE_CANCEL})
 INPUT_TYPES = frozenset({MSG_KEYDOWN, MSG_KEYUP, MSG_MOUSEMOVE, MSG_MOUSEDOWN, MSG_MOUSEUP, MSG_SCROLL, MSG_GESTURE, MSG_TEXT})
 
 ERROR_INVALID_HELLO = "invalid_hello"
@@ -1278,7 +1288,91 @@ def read_clipboard(message):
         return None
     if text is not None and _utf8_size(text) > CLIPBOARD_MAX_BYTES:
         text = None
-    return {"text": text, "image": clipboard_image(data)}
+    return {"text": text, "image": clipboard_image(data), "files": read_files(data.get("files"))}
+
+
+# Files on the clipboard. A transfer names at most FILES_MAX_ITEMS files and empty folders, as
+# paths relative to what was copied, joined by "/", holding at most FILES_MAX_BYTES in all.
+FILES_MAX_ITEMS = 10000
+FILES_MAX_BYTES = 64 * 1024**3
+FILE_PATH_MAX = 1024
+# One `file_data` piece: 32 KiB is about 44 KiB as base64, well inside SMALL_MESSAGE_BYTES, and a
+# few milliseconds of Wi-Fi, so input queued behind one waits no longer than that.
+FILE_CHUNK_BYTES = 32 * 1024
+FILE_ID_MAX = 2**31 - 1
+
+
+def _file_path_ok(path) -> bool:
+    if not isinstance(path, str) or not 1 <= len(path) <= FILE_PATH_MAX or _utf8_size(path) is None:
+        return False
+    parts = path.split("/")
+    return all(part and part not in (".", "..") and "\\" not in part and not any(ord(c) < 32 for c in part) for part in parts)
+
+
+def read_files(files):
+    """{x, items: [{p, s} or {p, dir: True}]} from a clipboard's `files`, or None when absent or
+    malformed in any part: a path that is empty, absolute, climbs with "..", or repeats; a size out
+    of range; too many items or bytes."""
+    if not isinstance(files, dict) or not _int(files.get("x"), 1, FILE_ID_MAX):
+        return None
+    items = files.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= FILES_MAX_ITEMS:
+        return None
+    seen, total, clean = set(), 0, []
+    for item in items:
+        if not isinstance(item, dict) or not _file_path_ok(item.get("p")):
+            return None
+        key = item["p"].casefold()
+        if key in seen:
+            return None
+        seen.add(key)
+        if item.get("dir") is True:
+            clean.append({"p": item["p"], "dir": True})
+            continue
+        if not _int(item.get("s"), 0, FILES_MAX_BYTES):
+            return None
+        total += item["s"]
+        clean.append({"p": item["p"], "s": item["s"]})
+    if total > FILES_MAX_BYTES:
+        return None
+    return {"x": files["x"], "items": clean}
+
+
+def file_data_msg(xfer: int, index: int, offset: int, data: bytes) -> dict:
+    return {"type": MSG_FILE_DATA, "data": {"x": xfer, "f": index, "o": offset,
+                                            "d": base64.b64encode(data).decode("ascii")}}
+
+
+def file_end_msg(xfer: int) -> dict:
+    return {"type": MSG_FILE_END, "data": {"x": xfer}}
+
+
+def file_cancel_msg(xfer: int) -> dict:
+    return {"type": MSG_FILE_CANCEL, "data": {"x": xfer}}
+
+
+def read_file_message(message):
+    """(type, x, index, offset, bytes) for a `file_data`, (type, x, None, None, None) for a
+    `file_end` or `file_cancel`, or None when malformed."""
+    parsed = read_message(message)
+    if parsed is None or parsed[0] not in FILE_TYPES:
+        return None
+    kind, data = parsed
+    if not _int(data.get("x"), 1, FILE_ID_MAX):
+        return None
+    if kind != MSG_FILE_DATA:
+        return kind, data["x"], None, None, None
+    encoded = data.get("d")
+    if (not _int(data.get("f"), 0, FILES_MAX_ITEMS - 1) or not _int(data.get("o"), 0, FILES_MAX_BYTES)
+            or not isinstance(encoded, str) or len(encoded) > FILE_CHUNK_BYTES * 4 // 3 + 4):
+        return None
+    try:
+        chunk = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not chunk or len(chunk) > FILE_CHUNK_BYTES:
+        return None
+    return kind, data["x"], data["f"], data["o"], chunk
 
 
 def arrangement_v6(edge: str, set_at: int, by: bytes, way_back=None, way_back_by=None) -> dict:

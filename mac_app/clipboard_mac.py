@@ -177,3 +177,35 @@ def set_contents(text, png):
     except Exception:
         LOGGER.exception("failed to set the macOS clipboard")
         return False
+
+
+# Files (core/file_transfer.py): Finder's copy is one file URL per item.
+
+def read_files():
+    """The paths of the files and folders copied in Finder, or [] when none are."""
+    if AppKit is None:
+        return []
+    with _LOCK:
+        pasteboard = AppKit.NSPasteboard.generalPasteboard()
+        options = {AppKit.NSPasteboardURLReadingFileURLsOnlyKey: True}
+        urls = pasteboard.readObjectsForClasses_options_([AppKit.NSURL], options) or []
+        return [str(url.path()) for url in urls if url.isFileURL() and url.path()]
+
+
+def set_files(paths):
+    """Puts `paths` on the pasteboard as Finder's copy would. True when written. Never raises."""
+    global _synced_count, _written_count
+    if AppKit is None or not paths:
+        return False
+    try:
+        with _LOCK:
+            pasteboard = AppKit.NSPasteboard.generalPasteboard()
+            count = pasteboard.clearContents()
+            urls = [AppKit.NSURL.fileURLWithPath_(path) for path in paths]
+            wrote = bool(pasteboard.writeObjects_(urls))
+            if wrote:
+                _synced_count = _written_count = count
+        return wrote
+    except Exception:
+        LOGGER.exception("failed to put files on the macOS clipboard")
+        return False

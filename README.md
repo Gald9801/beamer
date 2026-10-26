@@ -115,8 +115,10 @@ In your own appearance: light if your GitHub is light, dark if it is dark.
 - **Pair them clearly.** Pair a machine is at the top of Overview, and the six digits are centred.
 - **Three machines.** Pair each machine with the others in the group. A chain needs a direct
   pairing between every pair of machines in it.
-- **The clipboard comes with you.** Text and images, both ways, at the moment you switch. Files
-  stay where they are.
+- **The clipboard comes with you.** Text, images and files, both ways, at the moment you switch.
+  Copy files or folders in Explorer or Finder, switch, and paste: they arrive in
+  `Downloads/Beamer` on the other machine and go on its clipboard once every byte is there
+  (Windows and macOS; this fork's addition).
 - **Your shortcuts still work.** Between a Mac and Windows, Cmd becomes Ctrl and Option becomes
   Alt, so Cmd+C copies there too. The PC gets the reverse. Between two Macs or two PCs, each key
   arrives as the same physical key. On Windows, you can also choose a Mac keyboard layout, where
@@ -176,7 +178,9 @@ when Same on all machines is on.
 - **The Windows secure desktop cannot be driven.** UAC prompts, Ctrl+Alt+Del and the lock screen
   refuse input from any app by design, and Ctrl+Alt+Del cannot be sent at all. Use the PC's own
   keyboard there.
-- **Files do not cross**, only text and images, up to 256KB of text and an 8MB image.
+- **Clipboard limits:** 256KB of text, an 8MB image, and up to 10,000 files and 64GB at once.
+  A big transfer takes its time after the switch; paste once it has finished. Files do not go on
+  through a third machine in a chain, and Linux does not send or take them yet.
 - **AltGr is out of reach from the Mac.**
 - **Linux on Wayland has fewer controls.** Its limits are listed under [Linux](#linux).
 - **Linux gestures are not supported.**

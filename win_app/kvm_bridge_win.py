@@ -94,6 +94,7 @@ import quit_signals as quit_signals_module
 import global_shortcut_portal
 import portal
 from core import protocol
+from core import file_transfer
 from core import settings_sync
 from core import i18n
 from core.i18n import matches_translation, N_, joined, tr, trc
@@ -621,6 +622,13 @@ class WindowsApplication(QWidget):
             lambda settings: app_config.write_settings(self.config_path, settings),
             app_config.SETTINGS_LOCK,
         )
+        # Files copied here go with the clipboard where the clipboard module can read and set them.
+        clipboard = platform_parts.clipboard
+        self.files = (file_transfer.FileShare(
+            lambda: platform_parts.clipboard,
+            written=self._files_written,
+            notify=lambda text: self.bridge.alert.emit("Beamer", text),
+        ) if hasattr(clipboard, "read_files") and hasattr(clipboard, "set_files") else None)
         self.server = LinkResponder(
             self.book,
             self._identity,
@@ -647,6 +655,7 @@ class WindowsApplication(QWidget):
             hardware=hardware_win.hardware_address_towards,
             desktop=platform_parts.desktop,
             injector=platform_parts.injector,
+            files=self.files,
         )
         # The links outwards: this PC's keyboard and mouse on its peers.
         self.sender = LinkSender(
@@ -663,6 +672,7 @@ class WindowsApplication(QWidget):
             desktop=platform_parts.desktop,
             clipboard=platform_parts.clipboard,
             mouse_only_supported=not platform_parts.WAYLAND,
+            files=self.files,
         )
         self._own_display_map = {}
         app = QApplication.instance()
@@ -1964,9 +1974,15 @@ class WindowsApplication(QWidget):
             "app": VERSION[:32] if VERSION.isascii() and VERSION.isprintable() else "dev",
             # A swipe has no shortcut every Linux desktop shares, so Linux does not offer gestures.
             "caps": [cap for cap in ("clipboard", "clipboard_image", "gestures", "media_keys", "text", "settings", "design_sync", "layout", "profiles", "displays", "identify_screens", "ping_rtt", "motion_path")
-                     if not (cap == "gestures" and OWN_PLATFORM == "linux")],
+                     if not (cap == "gestures" and OWN_PLATFORM == "linux")]
+                    + ([file_transfer.CAPABILITY] if getattr(self, "files", None) is not None else []),
             "port": self._settings_port,
         }
+
+    def _files_written(self, stamp) -> None:
+        """Files a peer sent are on the clipboard: neither half may send them back as this PC's copy."""
+        self.sender.clipboard_written(stamp)
+        self.server.clipboard_written(stamp)
 
     def _zones(self) -> list:
         try:

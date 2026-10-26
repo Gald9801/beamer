@@ -842,16 +842,16 @@ class ClipboardImages(unittest.TestCase):
     def test_only_the_image_part_of_a_clipboard_is_dropped(self):
         for image in (pngs.png(16385, 1), pngs.png(8, 8, pngs.ztxt(5 * 1024 * 1024))):
             with self.subTest(size=len(image)):
-                self.assertEqual(protocol.read_clipboard(protocol.clipboard_msg(text="hi", image=image)), {"text": "hi", "image": None})
+                self.assertEqual(protocol.read_clipboard(protocol.clipboard_msg(text="hi", image=image)), {"text": "hi", "image": None, "files": None})
 
 
 class Others(unittest.TestCase):
     def test_clipboard(self):
         png = pngs.png()
         read = protocol.read_clipboard(protocol.clipboard_msg(text="hi", image=png))
-        self.assertEqual(read, {"text": "hi", "image": png})
+        self.assertEqual(read, {"text": "hi", "image": png, "files": None})
         read = protocol.read_clipboard({"type": "clipboard", "data": {"text": "x" * (256 * 1024 + 1)}})
-        self.assertEqual(read, {"text": None, "image": None})
+        self.assertEqual(read, {"text": None, "image": None, "files": None})
         self.assertIsNone(protocol.read_clipboard({"type": "clipboard", "data": {"text": "hi", "image": 5}}))
         self.assertIsNone(protocol.read_clipboard({"type": "clipboard", "data": {"text": 5}}))
         self.assertEqual(protocol.read_clipboard({"type": "clipboard", "data": {"text": "é" * (128 * 1024)}})["text"], "é" * (128 * 1024))

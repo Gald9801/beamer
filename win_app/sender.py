@@ -150,8 +150,11 @@ class LinkSender:
         wake_sender=wol.send_magic_packet,
         mac_lookup=wol.lookup_mac,
         hardware: Callable[[str], str] = None,
+        files=None,
     ) -> None:
         self._book = book
+        # core.file_transfer.FileShare, or None: files copied here go with the clipboard.
+        self._files = files
         self._identity = identity
         self._hardware = hardware
         self._zones = zones
@@ -1002,6 +1005,8 @@ class LinkSender:
             else:
                 self._accepts.pop(peer, None)
                 self._forget_held(peer)
+                if self._files is not None:
+                    self._files.link_lost(("initiator", peer))
             actions = self._owner.link_up(peer, accepts) if up else self._owner.link_down(peer)
             self._queue(actions)
         self._report(actions)
@@ -1053,10 +1058,18 @@ class LinkSender:
             if read is not None:
                 # Rebuilt from what was read: the owner sends it on to the machine input is on.
                 clean = protocol.clipboard_msg(read["text"], read["image"])
+                began = began_at if began_at is not None else self._clock()
                 with self._lock:
-                    actions = self._owner.clipboard_arrived(peer, began_at if began_at is not None else self._clock(), clean)
+                    taken = self._owner.expects_clipboard(peer, began)
+                    actions = self._owner.clipboard_arrived(peer, began, clean)
                     self._queue(actions)
+                if (taken and read["files"] is not None and self._files is not None
+                        and "clipboard_files" in self.links.caps(peer)):
+                    self._files.arrived(("initiator", peer), read["files"])
                 self._report(actions)
+        elif kind in protocol.FILE_TYPES:
+            if self._files is not None and "clipboard_files" in self.links.caps(peer):
+                self._files.receive(("initiator", peer), message)
         elif kind == protocol.MSG_ARRANGEMENT:
             read = protocol.read_arrangement_v6(message, time.time())
             if read is not None and self.arrangement_callback is not None:
@@ -1461,9 +1474,25 @@ class LinkSender:
             text = None
         if "clipboard_image" not in caps:
             image = None
-        if not text and image is None:
+        files = None
+        if self._files is not None and "clipboard_files" in caps:
+            files = self._files.offer(("initiator", peer))
+            if files is not None:
+                # Explorer may also put the names on as text; the files stand for themselves.
+                text = image = None
+        if not text and image is None and files is None:
             return None
-        return self.links.post(peer, protocol.clipboard_msg(text or None, image))
+        sent = self.links.post(peer, protocol.clipboard_msg(text or None, image, files))
+        if sent and files is not None:
+            self._files.send(("initiator", peer), lambda message: self.links.post(peer, message),
+                             lambda: self.links.backlog(peer))
+        return sent
+
+    def clipboard_written(self, stamp) -> None:
+        """Files a peer sent were put on the clipboard: that change is the peer's, not this PC's."""
+        with self._lock:
+            self._clipboard_stamp = stamp
+            self._clipboard_written_stamp = stamp
 
     def _set_clipboard(self, message: dict) -> None:
         read = protocol.read_clipboard(message)
@@ -1894,6 +1923,10 @@ class LinkSet:
     def pending(self, peer) -> int:
         link = self._link(peer)
         return link.pending() if link is not None else 0
+
+    def backlog(self, peer) -> int:
+        link = self._link(peer)
+        return link.backlog() if link is not None else 0
 
     def round_trip_ms(self, peer) -> Optional[int]:
         """The upper median of the last few trips, with the time the peer held each ACK taken off, or

@@ -164,6 +164,19 @@ msgstr "Un quarto"
 msgid "Same as crossing"
 msgstr "Come il passaggio"
 
+#: core/file_transfer.py
+msgid "Files from the other machine could not be received"
+msgstr "Non è stato possibile ricevere i file dall'altro computer"
+
+#: core/file_transfer.py
+msgid "Files received: paste to copy them here"
+msgstr "File ricevuti: incolla per copiarli qui"
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files received into {folder}"
+msgstr "File ricevuti in {folder}"
+
 #: core/fx_folio.py
 msgid "Crease"
 msgstr "Piega"

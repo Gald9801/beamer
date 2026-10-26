@@ -907,6 +907,26 @@ names a machine sends input there, from home or straight from the machine it is 
 - Version 5 sent the clipboard before `focus`. Version 6 sends it after, because a responder takes
   a clipboard only from its owner; the input that follows it on the same link is still behind it.
 
+### Files on the clipboard (this fork)
+
+Machines whose `caps` both list `clipboard_files` carry copied files with the clipboard:
+
+- A `clipboard` names them under `files`: `x`, a transfer id from 1 to 2^31 - 1, and `items`, at
+  most 10,000 of `{p, s}` (a path relative to what was copied, its parts joined by `/`, none empty,
+  `.` or `..`, no `\`, at most 1024 characters; and a size in bytes) or `{p, dir: true}` for an
+  empty folder; no two paths the same ignoring case; at most 64 GiB in all. A sender with files
+  sends neither `text` nor `image` beside them.
+- The bytes follow on the same link, in order: `file_data` (`x`, `f` the item's index, `o` the
+  offset, `d` at most 32 KiB as standard base64), then `file_end` (`x`). `file_cancel` (`x`) gives
+  the transfer up. A sender keeps at most three messages queued ahead of the link, so input waits
+  behind at most a few pieces.
+- A receiver takes pieces only for the transfer the last `clipboard` it took from that peer named,
+  under section 5's rules, so files arrive only by the clipboard's own path. A piece out of order
+  or past an item's size, or an item short at `file_end`, discards the transfer. Files are written
+  to a hidden folder and moved to a folder of their own under `Downloads/Beamer` when complete,
+  and put on the clipboard only when nothing was copied there since the `clipboard` arrived. That
+  write counts as the peer's clipboard, so it is never sent back.
+
 ### A phone
 
 - A phone is an initiator only. A desktop's entry for a phone has `port` 0, `host` `""` and

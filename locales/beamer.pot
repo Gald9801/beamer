@@ -162,6 +162,19 @@ msgstr ""
 msgid "Same as crossing"
 msgstr ""
 
+#: core/file_transfer.py
+msgid "Files from the other machine could not be received"
+msgstr ""
+
+#: core/file_transfer.py
+msgid "Files received: paste to copy them here"
+msgstr ""
+
+#: core/file_transfer.py
+#, python-brace-format
+msgid "Files received into {folder}"
+msgstr ""
+
 #: core/fx_folio.py
 msgid "Crease"
 msgstr ""

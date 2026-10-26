@@ -744,7 +744,7 @@ class ClipboardImageVectors(unittest.TestCase):
                 image = unhex(case["png_hex"])
                 self.assertIs(protocol.png_fits(image), case["fits"])
                 read = protocol.read_clipboard(protocol.clipboard_msg("words", image))
-                self.assertEqual(read, {"text": "words", "image": image if case["fits"] else None})
+                self.assertEqual(read, {"text": "words", "image": image if case["fits"] else None, "files": None})
 
 
 @unittest.skipUnless(os.path.exists(os.path.join(_TOOLS, "phone_vectors.py")), "the vector generator is not part of the public source")
