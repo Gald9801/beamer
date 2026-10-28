@@ -523,3 +523,19 @@ class InjectTextTests(unittest.TestCase):
     def test_empty_text_sends_nothing(self):
         with mock.patch.object(input_injector, "_send_input", lambda *items: self.fail("nothing to send")):
             input_injector.inject_text("")
+
+
+class CapsLockHereTests(unittest.TestCase):
+    """The sender applies its own Caps Lock to the letter it sends; this PC's must not apply again."""
+
+    def plan(self, name, caps_on, mods=()):
+        return plan_key_inputs(name, True, set(mods), {}, fake_vk_lookup, fake_scan_lookup, caps_on=caps_on)
+
+    def test_with_caps_lock_off_a_letter_is_its_key(self):
+        self.assertEqual(self.plan("c", False)[0][2], 0)
+
+    def test_with_caps_lock_on_a_letter_goes_as_sent(self):
+        self.assertEqual(self.plan("c", True), [(0, ord("c"), KEYEVENTF_UNICODE)])
+
+    def test_a_shortcut_still_goes_by_key_with_caps_lock_on(self):
+        self.assertNotEqual(self.plan("c", True, ("ctrl",))[0][2] & KEYEVENTF_UNICODE, KEYEVENTF_UNICODE)

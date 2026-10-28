@@ -40,6 +40,8 @@ if _IS_WINDOWS:
     user32.MapVirtualKeyExW.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
     user32.GetKeyboardLayout.restype = ctypes.c_void_p
     user32.GetKeyboardLayout.argtypes = [ctypes.c_ulong]
+    user32.GetKeyState.restype = ctypes.c_short
+    user32.GetKeyState.argtypes = [ctypes.c_int]
     user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
     user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     user32.ToUnicodeEx.restype = ctypes.c_int
@@ -49,6 +51,7 @@ if _IS_WINDOWS:
     user32.GetForegroundWindow.restype = ctypes.c_void_p
     user32.GetClassNameW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
 
+VK_CAPITAL = 0x14
 INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 
@@ -138,6 +141,10 @@ def _layout():
     window = user32.GetForegroundWindow()
     thread = user32.GetWindowThreadProcessId(window, None) if window else 0
     return user32.GetKeyboardLayout(thread)
+
+
+def _caps_lock_on() -> bool:
+    return bool(user32.GetKeyState(VK_CAPITAL) & 1) if user32 is not None else False
 
 
 def _vk_key_scan(ch: str) -> int:
@@ -334,6 +341,7 @@ def plan_key_inputs(
     scan_lookup: ScanLookup,
     us: Optional[str] = None,
     place_lookup: Optional[PlaceLookup] = None,
+    caps_on: bool = False,
 ) -> List[Tuple[int, int, int]]:
     """Pure planning logic: decide which (wVk, wScan, flags) tuples to send.
 
@@ -341,7 +349,8 @@ def plan_key_inputs(
     like inject_key does, so callers (tests) can inspect the bookkeeping.
     Returns an empty list if the key should be dropped. `us` is where the
     key sits on a US keyboard, sent by a physical keyboard and absent from
-    a phone's.
+    a phone's. `caps_on` is this PC's Caps Lock: the sender has already applied its own to the
+    letter it sends, so a letter is never pressed through this one as well.
     """
     keyup_flag = 0 if down else KEYEVENTF_KEYUP
     lowered = name.lower()
@@ -399,6 +408,11 @@ def plan_key_inputs(
         vk = result & 0xFF
         shift_state = (result >> 8) & 0xFF
         shift_only = shift_state == 0x01
+        if caps_on and ch.lower() != ch.upper() and not mods_down & CHORD_KEYS:
+            # Caps Lock here would turn the sender's "a" into "A": the two machines' Caps Lock
+            # states drift apart whenever one is pressed while input is elsewhere. The letter goes
+            # as text, exactly as it was sent. A shortcut still goes by key.
+            return [(0, ord(ch), KEYEVENTF_UNICODE | keyup_flag)]
         if shift_state == 0 or (shift_only and mods_down & SHIFT_KEYS):
             scan = scan_lookup(vk)
             char_vk_down[ch] = vk
@@ -464,7 +478,8 @@ def inject_key(name: str, down: bool, us: Optional[str] = None) -> None:
         if not down:
             _named_down.pop(lowered, None)
     else:
-        plan = plan_key_inputs(name, down, _mods_down, _char_vk_down, _vk_key_scan, _map_virtual_key, us, _key_at)
+        plan = plan_key_inputs(name, down, _mods_down, _char_vk_down, _vk_key_scan, _map_virtual_key, us, _key_at,
+                               caps_on=_caps_lock_on())
         if down and plan and lowered in VK_MAP and lowered not in MODIFIER_KEYS:
             _named_down[lowered] = plan[0]
     if not plan:
