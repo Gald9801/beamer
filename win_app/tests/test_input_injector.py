@@ -539,3 +539,24 @@ class CapsLockHereTests(unittest.TestCase):
 
     def test_a_shortcut_still_goes_by_key_with_caps_lock_on(self):
         self.assertNotEqual(self.plan("c", True, ("ctrl",))[0][2] & KEYEVENTF_UNICODE, KEYEVENTF_UNICODE)
+
+
+class ScancodeMapTests(unittest.TestCase):
+    """This PC's own key remapping (the registry's Scancode Map) applies to keys a peer sends."""
+
+    # Right Alt (E0 38) types Left Alt (00 38); the Menu key (E0 5D) types Delete (E0 53); Caps (3A) is off.
+    RAW = bytes([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0x38, 0x00, 0x38, 0xE0, 0x53, 0xE0, 0x5D, 0xE0,
+                 0x00, 0x00, 0x3A, 0x00, 0, 0, 0, 0])
+    SCANS = {"alt": 0x38, "alt_r": 0xE038, "menu": 0xE05D, "delete": 0xE053, "caps_lock": 0x3A}
+
+    def test_the_registry_value_reads_as_source_to_target(self):
+        self.assertEqual(input_injector.parse_scancode_map(self.RAW), {0xE038: 0x38, 0xE05D: 0xE053, 0x3A: 0})
+
+    def test_named_keys_follow_it_and_a_key_turned_off_types_nothing(self):
+        remap = input_injector.named_remap(input_injector.parse_scancode_map(self.RAW),
+                                           lambda name: self.SCANS.get(name, 0x7F))
+        self.assertEqual(remap, {"alt_r": "alt", "menu": "delete", "caps_lock": None})
+
+    def test_a_malformed_value_changes_nothing(self):
+        self.assertEqual(input_injector.parse_scancode_map(b"\x00" * 6), {})
+        self.assertEqual(input_injector.parse_scancode_map(bytes(8) + bytes([9, 0, 0, 0])), {})

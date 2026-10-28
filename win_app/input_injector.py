@@ -435,6 +435,83 @@ def plan_key_inputs(
     return []
 
 
+def parse_scancode_map(raw) -> Dict[int, int]:
+    """{source scan code: target scan code} from the registry's Scancode Map: an 8-byte header,
+    a count that includes the closing null entry, then (target, source) pairs of little-endian
+    16-bit codes, 0xE0 in the high byte for an extended key. A target of 0 turns the key off.
+    Empty for anything malformed."""
+    try:
+        raw = bytes(raw)
+        count = int.from_bytes(raw[8:12], "little")
+        if count < 1 or len(raw) < 12 + 4 * count:
+            return {}
+        pairs = {}
+        for index in range(count - 1):
+            entry = raw[12 + 4 * index:16 + 4 * index]
+            target, source = int.from_bytes(entry[0:2], "little"), int.from_bytes(entry[2:4], "little")
+            if source:
+                pairs[source] = target
+        return pairs
+    except (TypeError, ValueError):
+        return {}
+
+
+def named_remap(pairs: Dict[int, int], scan_of: Callable[[str], int]) -> Dict[str, Optional[str]]:
+    """The named keys `pairs` moves, as {name pressed: name typed}, None for a key turned off. A
+    target no named key has stays as pressed."""
+    by_scan = {}
+    for name in VK_MAP:
+        by_scan.setdefault(scan_of(name), name)
+    remap = {}
+    for name in VK_MAP:
+        target = pairs.get(scan_of(name))
+        if target is None:
+            continue
+        if target == 0:
+            remap[name] = None
+        elif target in by_scan and by_scan[target] != name:
+            remap[name] = by_scan[target]
+    return remap
+
+
+def _scan_of(name: str) -> int:
+    # The Windows and Menu keys are extended on the keyboard although SendInput needs no flag.
+    extended = name in EXTENDED_KEYS or VK_MAP[name] in (0x5B, 0x5C, 0x5D)
+    return (0xE000 if extended else 0) | (user32.MapVirtualKeyW(VK_MAP[name], MAPVK_VK_TO_VSC) & 0xFF)
+
+
+def _load_remap() -> Dict[str, Optional[str]]:
+    """This PC's own key remapping (HKLM Keyboard Layout, Scancode Map), applied to the keys Beamer
+    types too. Windows applies it in the keyboard driver, which keys sent with SendInput never pass
+    through, so without this a peer's Right Alt stayed Right Alt where this PC's own keyboard's had
+    become Left Alt, and Alt+Shift switched the language from one keyboard and not the other."""
+    if user32 is None:
+        return {}
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Keyboard Layout") as key:
+            raw, _ = winreg.QueryValueEx(key, "Scancode Map")
+    except OSError:
+        return {}
+    remap = named_remap(parse_scancode_map(raw), _scan_of)
+    if remap:
+        LOGGER.info("Keys typed for a peer follow this PC's key remapping: %s", remap)
+    return remap
+
+
+_remap: Optional[Dict[str, Optional[str]]] = None
+
+
+def _remapped(name: str) -> Optional[str]:
+    """`name` as this PC's own key remapping types it; None for a key it turns off."""
+    global _remap
+    if _remap is None:
+        _remap = _load_remap()
+    lowered = name.lower()
+    return _remap.get(lowered, name) if lowered in _remap else name
+
+
 _mods_down: Set[str] = set()
 _char_vk_down: Dict[str, int] = {}
 _named_down: Dict[str, Tuple[int, int, int]] = {}
@@ -456,6 +533,9 @@ def _locked(function):
 @_locked
 def inject_key(name: str, down: bool, us: Optional[str] = None) -> None:
     LOGGER.debug("key %s %s (mods held: %s)", name, "down" if down else "up", sorted(_mods_down))
+    name = _remapped(name)
+    if name is None:
+        return
     lowered = name.lower()
     chords = {"search": (0x5B, 0x53), "dictation": (0x5B, 0x48), "mic_mute": (0x5B, 0x12, 0x4B)}
     if lowered in chords:
