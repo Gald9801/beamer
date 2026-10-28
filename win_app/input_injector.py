@@ -32,10 +32,16 @@ user32 = ctypes.WinDLL("user32", use_last_error=True) if _IS_WINDOWS else None
 if _IS_WINDOWS:
     user32.VkKeyScanW.restype = ctypes.c_short
     user32.VkKeyScanW.argtypes = [ctypes.c_wchar]
+    user32.VkKeyScanExW.restype = ctypes.c_short
+    user32.VkKeyScanExW.argtypes = [ctypes.c_wchar, ctypes.c_void_p]
     user32.MapVirtualKeyW.restype = ctypes.c_uint
     user32.MapVirtualKeyW.argtypes = [ctypes.c_uint, ctypes.c_uint]
+    user32.MapVirtualKeyExW.restype = ctypes.c_uint
+    user32.MapVirtualKeyExW.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
     user32.GetKeyboardLayout.restype = ctypes.c_void_p
     user32.GetKeyboardLayout.argtypes = [ctypes.c_ulong]
+    user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+    user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     user32.ToUnicodeEx.restype = ctypes.c_int
     user32.ToUnicodeEx.argtypes = [
         ctypes.c_uint, ctypes.c_uint, ctypes.c_char * 256, ctypes.c_wchar_p, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p,
@@ -124,22 +130,32 @@ def _send_input(*inputs: INPUT) -> None:
         raise OSError(error, "Windows refused Beamer's input (administrator windows require local input)")
 
 
+def _layout():
+    """The keyboard layout of the window the keys go to. Not this thread's own: a thread that
+    reads no keyboard input keeps the layout it started with, so after the user switched
+    languages (Alt+Shift) it would look keys up in one layout while the app typed them in another,
+    and an English window took Arabic text. The capture's _to_unicode reads it the same way."""
+    window = user32.GetForegroundWindow()
+    thread = user32.GetWindowThreadProcessId(window, None) if window else 0
+    return user32.GetKeyboardLayout(thread)
+
+
 def _vk_key_scan(ch: str) -> int:
-    """Look up the VK + shift-state byte for a character via VkKeyScanW.
+    """Look up the VK + shift-state byte for a character via VkKeyScanExW.
 
     Returns the raw 16-bit result (low byte VK, high byte shift state) or
-    -1 if the character can't be produced by the current keyboard layout.
+    -1 if the character can't be produced by the foreground window's layout.
     """
     if user32 is None:
-        raise RuntimeError("VkKeyScanW is only available on Windows")
-    return user32.VkKeyScanW(ch)
+        raise RuntimeError("VkKeyScanExW is only available on Windows")
+    return user32.VkKeyScanExW(ch, _layout())
 
 
 def _map_virtual_key(vk: int) -> int:
     """Look up the hardware scan code for a virtual-key code."""
     if user32 is None:
-        raise RuntimeError("MapVirtualKeyW is only available on Windows")
-    return user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+        raise RuntimeError("MapVirtualKeyExW is only available on Windows")
+    return user32.MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, _layout())
 
 
 def _key_at(us: str) -> Optional[Tuple[int, Optional[str]]]:
@@ -150,14 +166,15 @@ def _key_at(us: str) -> Optional[Tuple[int, Optional[str]]]:
     scan = US_SCAN_CODES.get(us)
     if scan is None:
         return None
-    vk = user32.MapVirtualKeyW(scan, MAPVK_VSC_TO_VK)
+    layout = _layout()
+    vk = user32.MapVirtualKeyExW(scan, MAPVK_VSC_TO_VK, layout)
     if not vk:
         return None
     # Not MapVirtualKeyW's MAPVK_VK_TO_CHAR, which answers A to Z for the letter keys on every
     # layout: on Russian the C key would read as "c" and a letter from an English Mac stay text.
     # Flag 1<<2 leaves the keyboard state alone, so a dead key here eats no accent being typed.
     buffer = ctypes.create_unicode_buffer(8)
-    count = user32.ToUnicodeEx(vk, scan, (ctypes.c_char * 256)(), buffer, len(buffer), 1 << 2, user32.GetKeyboardLayout(0))
+    count = user32.ToUnicodeEx(vk, scan, (ctypes.c_char * 256)(), buffer, len(buffer), 1 << 2, layout)
     return vk, buffer.value[:count] if count == 1 else None
 
 
